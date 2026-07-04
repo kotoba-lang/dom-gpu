@@ -62,6 +62,23 @@
       (update-in [:nodes parent-id :children] (fnil conj []) child-id)
       (emit [:dom/append-child parent-id child-id])))
 
+(defn insert-before [document parent-id child-id before-id]
+  (-> document
+      (update-in [:nodes parent-id :children]
+                 (fn [children]
+                   (let [children (vec (or children []))]
+                     (if (and before-id (some #{before-id} children))
+                       (let [[before after] (split-with #(not= before-id %) children)]
+                         (vec (concat before [child-id] after)))
+                       (conj children child-id)))))
+      (emit [:dom/insert-before parent-id child-id before-id])))
+
+(defn remove-child [document parent-id child-id]
+  (-> document
+      (update-in [:nodes parent-id :children]
+                 (fn [children] (vec (remove #{child-id} (or children [])))))
+      (emit [:dom/remove-child parent-id child-id])))
+
 (defn remove-children [document node-id]
   (-> document
       (assoc-in [:nodes node-id :children] [])
