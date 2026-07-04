@@ -10,7 +10,8 @@
     "release:wasm-webgpu": "shadow-cljs release wasm-webgpu",
     "compile:wasm-ui": "shadow-cljs compile wasm-ui",
     "compile:wasm-webgpu": "shadow-cljs compile wasm-webgpu",
-    "compile:all": "npm run compile:wasm-ui && npm run compile:wasm-webgpu",
+    "compile:wasm-document": "shadow-cljs compile wasm-document",
+    "compile:all": "npm run compile:wasm-ui && npm run compile:wasm-webgpu && npm run compile:wasm-document",
     "test:clj": "clojure -M:test",
     "smoke:wasm-ui": "clojure -M:smoke",
     "check:wasm-ui": "npm run test:clj && npm run compile:all && npm run smoke:wasm-ui"

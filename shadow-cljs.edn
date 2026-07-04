@@ -19,4 +19,14 @@
    :release    {:compiler-options {:optimizations :advanced}}
    :devtools   {:watch-dir "public"
                 :http-root "public"
+                :http-port 8701}}
+
+  :wasm-document
+  {:target     :browser
+   :output-dir "public/js"
+   :asset-path "/js"
+   :modules    {:wasm-document {:init-fn kotoba.wasm.demo-document/init!}}
+   :release    {:compiler-options {:optimizations :advanced}}
+   :devtools   {:watch-dir "public"
+                :http-root "public"
                 :http-port 8701}}}}
