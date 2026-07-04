@@ -3,7 +3,7 @@
 [![CI](https://github.com/kotoba-lang/dom-gpu/actions/workflows/ci.yml/badge.svg)](https://github.com/kotoba-lang/dom-gpu/actions/workflows/ci.yml)
 
 Renamed from `kotoba-lang/wasm-ui` (see
-`90-docs/adr/2607041500-kotoba-lang-ui-family-rename.md` in
+`90-docs/adr/2607051200-kotoba-lang-ui-family-rename.md` in
 `com-junkawasaki/root`) to avoid collision with the unrelated `kotoba-ui`/
 `appkit`/`uikit` app design-system family and to name what this repo actually
 is: the `kotoba:dom` retained-tree lowered to GPU draw ops. Internal build
