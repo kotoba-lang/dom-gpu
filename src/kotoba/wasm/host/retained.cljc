@@ -2,7 +2,7 @@
   "Shared retained-tree host utilities for kotoba:dom renderers.
    WebGL, WebGPU, and native hosts should share this state transition layer so
    ABI semantics are tested once and renderer backends only handle drawing."
-  (:require [kotoba.wasm.layout :as layout]))
+  (:require [cssom.layout :as layout]))
 
 (def base-state
   {:nodes {}

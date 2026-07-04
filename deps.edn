@@ -1,5 +1,6 @@
 {:paths ["src" "resources"]
- :deps {org.clojure/clojure {:mvn/version "1.12.0"}}
+ :deps {org.clojure/clojure {:mvn/version "1.12.0"}
+        io.github.kotoba-lang/cssom {:local/root "../cssom"}}
  :aliases
  {:test  {:extra-paths ["test"]
           :extra-deps  {io.github.cognitect-labs/test-runner

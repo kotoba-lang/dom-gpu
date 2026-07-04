@@ -3,7 +3,7 @@
             [kotoba.wasm.abi :as abi]
             [kotoba.wasm.dom :as dom]
             [kotoba.wasm.host :as host]
-            [kotoba.wasm.layout :as layout]
+            [cssom.layout :as layout]
             [kotoba.wasm.runtime :as runtime]
             [re-frame.core :as rf]
             [reagent.core :as r]))
