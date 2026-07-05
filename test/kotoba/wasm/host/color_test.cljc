@@ -6,8 +6,9 @@
    color or `rgb()`, silently parsed as black via `js/parseInt` -> NaN ->
    bitwise-coerced-to-0). These tests pin down: hex (3/4/6/8-digit,
    case-insensitive), named colors (including ones the old bug would have
-   silently mis-rendered), rgb()/rgba() functional notation (comma and
-   space syntax, integer/percentage/out-of-range args), the documented
+   silently mis-rendered), rgb()/rgba() and hsl()/hsla() functional
+   notation (comma and space syntax, integer/percentage/out-of-range
+   args, hsl()'s circular hue wrapping), the documented
    fallback for unparseable input, and the alpha-multiplication contract
    `->rgba` must preserve."
   (:require [clojure.test :refer [deftest is testing]]
@@ -126,6 +127,50 @@
   (is (rgba= [0 0 0 0] (color/->rgba "rgb(1, 2)"))))
 
 ;; ---------------------------------------------------------------------
+;; hsl()/hsla() functional notation
+;; ---------------------------------------------------------------------
+
+(deftest hsl-fn-comma-syntax-primary-hues
+  (is (rgba= [1 0 0 1] (color/->rgba "hsl(0, 100%, 50%)")))
+  (is (rgba= [0 1 0 1] (color/->rgba "hsl(120, 100%, 50%)")))
+  (is (rgba= [0 0 1 1] (color/->rgba "hsl(240, 100%, 50%)"))))
+
+(deftest hsl-fn-zero-saturation-is-a-gray
+  (is (rgba= [0 0 0 1] (color/->rgba "hsl(0, 0%, 0%)")))
+  (is (rgba= [1 1 1 1] (color/->rgba "hsl(0, 0%, 100%)")))
+  (is (rgba= [0.5 0.5 0.5 1] (color/->rgba "hsl(0, 0%, 50%)"))))
+
+(deftest hsla-fn-comma-syntax-with-alpha
+  (is (rgba= [1 0 0 0.5] (color/->rgba "hsla(0, 100%, 50%, 0.5)"))))
+
+(deftest hsl-fn-case-insensitive-and-whitespace-tolerant
+  (is (rgba= [1 0 0 1] (color/->rgba "HSL(0,100%,50%)")))
+  (is (rgba= [1 0 0 1] (color/->rgba "  hsl( 0 , 100% , 50% )  "))))
+
+(deftest hsl-fn-space-syntax-with-slash-alpha
+  (is (rgba= [1 0 0 1] (color/->rgba "hsl(0 100% 50%)")))
+  (is (rgba= [1 0 0 0.5] (color/->rgba "hsl(0 100% 50% / 0.5)"))))
+
+(deftest hsl-fn-deg-suffixed-hue
+  (is (rgba= [0 1 0 1] (color/->rgba "hsl(120deg, 100%, 50%)"))))
+
+(deftest hsl-fn-hue-wraps-modulo-360-rather-than-clamping
+  ;; A hue outside [0, 360) is real, legal CSS -- it wraps circularly, it
+  ;; is not an out-of-range value to clamp (unlike rgb()'s channels) or an
+  ;; invalid one to reject.
+  (is (rgba= [0 0 1 1] (color/->rgba "hsl(-120, 100%, 50%)")))
+  (is (rgba= [0 1 0 1] (color/->rgba "hsl(480, 100%, 50%)"))))
+
+(deftest hsl-fn-saturation-lightness-require-percent-suffix
+  ;; Unlike rgb()'s channels, hsl()'s s/l arguments are CSS <percentage>
+  ;; values ONLY -- a bare number here is not valid CSS and must fall
+  ;; back, not be silently reinterpreted as a fraction or a 0-255 byte.
+  (is (rgba= [0 0 0 0] (color/->rgba "hsl(0, 100, 50)"))))
+
+(deftest hsl-fn-wrong-arg-count-falls-back
+  (is (rgba= [0 0 0 0] (color/->rgba "hsl(0, 100%)"))))
+
+;; ---------------------------------------------------------------------
 ;; fallback for genuinely unparseable input (the documented, deliberate
 ;; behavior -- NOT the old bug's silent-wrong-color, NOT a crash)
 ;; ---------------------------------------------------------------------
@@ -133,10 +178,11 @@
 (deftest unparseable-typo-falls-back-to-fully-transparent
   (is (rgba= [0 0 0 0] (color/->rgba "not-a-color"))))
 
-(deftest unsupported-hsl-falls-back-to-fully-transparent
-  ;; hsl()/hsla() is explicitly out of scope (see color.cljc docstring) --
-  ;; it must hit the same deliberate fallback, not silently misparse.
-  (is (rgba= [0 0 0 0] (color/->rgba "hsl(0, 100%, 50%)"))))
+(deftest unsupported-lab-falls-back-to-fully-transparent
+  ;; lab() (and other CSS Level 4 forms beyond hsl()/rgb()/hex/named, e.g.
+  ;; color()) is explicitly out of scope (see color.cljc docstring) -- it
+  ;; must hit the same deliberate fallback, not silently misparse.
+  (is (rgba= [0 0 0 0] (color/->rgba "lab(29% 39 20)"))))
 
 (deftest unresolved-css-variable-falls-back-to-fully-transparent
   (is (rgba= [0 0 0 0] (color/->rgba "var(--accent)"))))
@@ -182,9 +228,10 @@
 (deftest parse-color-returns-own-alpha-unmultiplied
   (is (rgba= [1 0 0 1] (color/parse-color "red")))
   (is (rgba= [0 0 0 0] (color/parse-color "transparent")))
-  (is (rgba= [0 (/ 128 255) 0 0.5] (color/parse-color "rgba(0, 128, 0, 0.5)"))))
+  (is (rgba= [0 (/ 128 255) 0 0.5] (color/parse-color "rgba(0, 128, 0, 0.5)")))
+  (is (rgba= [1 0 0 0.5] (color/parse-color "hsla(0, 100%, 50%, 0.5)"))))
 
 (deftest parse-color-returns-nil-for-unparseable-input
   (is (nil? (color/parse-color "not-a-color")))
-  (is (nil? (color/parse-color "hsl(0, 100%, 50%)")))
+  (is (nil? (color/parse-color "lab(29% 39 20)")))
   (is (nil? (color/parse-color nil))))

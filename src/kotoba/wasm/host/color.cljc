@@ -20,13 +20,21 @@
        may be plain 0-255 numbers or percentages, `a` may be a 0-1 number
        or a percentage; out-of-range values are clamped (per spec) rather
        than rejected
+     - `hsl(h, s%, l%)` / `hsla(h, s%, l%, a)`, same comma/space-syntax
+       duality as `rgb()`; `h` is a bare number or `deg`-suffixed angle
+       (wrapped modulo 360, matching real browsers), `s`/`l` MUST be
+       percentages (CSS's own `<percentage>`-only grammar for these two
+       arguments -- a bare number here is not valid CSS, unlike `rgb()`'s
+       channels), `a` has the same 0-1-number-or-percentage grammar as
+       `rgba()`. Converted to RGB via the CSS Color Module Level 4
+       algorithm (https://www.w3.org/TR/css-color-4/#hsl-to-rgb).
 
-   `hsl()`/`hsla()` and CSS Level 4 features beyond the above (e.g.
-   `rgb(from ...)`, `lab()`, `color()`) are NOT implemented. A color
-   string this parser can't make sense of -- a typo, an unresolved
-   `var(--x)` that should have been substituted upstream, an `hsl(...)`
-   call, etc. -- is a deliberate, documented case (see `->rgba` below),
-   not a crash and not a silently-wrong color.
+   CSS Level 4 features beyond the above (e.g. `rgb(from ...)`, `lab()`,
+   `color()`, `hsl()`'s `rad`/`grad`/`turn` angle units) are NOT
+   implemented. A color string this parser can't make sense of -- a typo,
+   an unresolved `var(--x)` that should have been substituted upstream,
+   a `lab(...)` call, etc. -- is a deliberate, documented case (see
+   `->rgba` below), not a crash and not a silently-wrong color.
 
    ALPHA CONTRACT (unchanged from the old per-file `hex->rgba`): CSS
    `opacity` is a separate, already-cascaded value computed cumulatively
@@ -321,11 +329,63 @@
           (when (and r g b a)
             [(unit r) (unit g) (unit b) a]))))))
 
+(defn- parse-hue-token
+  "Parses an hsl()/hsla() hue token: a bare number (`120`) or a `deg`-
+   suffixed angle (`120deg`), the two most common real-world hue forms.
+   `rad`/`grad`/`turn` angle units (CSS Color 4) are deliberately NOT
+   supported, mirroring this namespace's existing \"most common forms,
+   not full spec coverage\" convention. Unlike a color channel, a hue
+   is never clamped here -- it's a circular quantity, wrapped modulo 360
+   by `hsl->rgb` instead (a real, valid CSS pattern: `hsl(-120, ...)` and
+   `hsl(480, ...)` are both legal and equivalent to `hsl(240, ...)`)."
+  [tok]
+  (parse-css-double (if (str/ends-with? tok "deg") (subs tok 0 (- (count tok) 3)) tok)))
+
+(defn- parse-percent-token
+  "hsl()/hsla()'s saturation/lightness arguments are CSS <percentage>
+   values -- unlike rgb()'s channels, a bare number is NOT valid CSS for
+   these two arguments, so (unlike parse-channel-token) this rejects a
+   token with no `%` suffix. Returns a 0..1 fraction, clamped."
+  [tok]
+  (when (str/ends-with? tok "%")
+    (let [[n pct?] (parse-number-token tok)]
+      (when pct? (clamp 0 1 (/ n 100))))))
+
+(defn- hsl->rgb
+  "The CSS Color Module Level 4 hsl-to-rgb conversion
+   (https://www.w3.org/TR/css-color-4/#hsl-to-rgb). `h` is a hue angle in
+   degrees (any real number, wrapped modulo 360 here); `s`/`l` are 0..1
+   fractions (already clamped by `parse-percent-token`). Returns `[r g b]`
+   with each channel already in 0..1 -- no separate `unit` byte-scaling
+   needed, unlike hex/rgb()'s 0-255 channels."
+  [h s l]
+  (let [h (mod h 360)
+        f (fn [n]
+            (let [k (mod (+ n (/ h 30)) 12)
+                  a (* s (min l (- 1 l)))]
+              (- l (* a (max -1 (min (- k 3) (- 9 k) 1))))))]
+    [(f 0) (f 8) (f 4)]))
+
+(defn- parse-hsl-fn
+  "`ls` is the full, lower-cased, trimmed color string. Returns
+   `[r g b a]` (0..1 channels) or nil."
+  [ls]
+  (when-let [[_ inner] (re-matches #"hsla?\((.*)\)" ls)]
+    (let [toks (split-fn-args inner)]
+      (when (<= 3 (count toks) 4)
+        (let [[h-tok s-tok l-tok a-tok] toks
+              h (parse-hue-token h-tok)
+              s (parse-percent-token s-tok)
+              l (parse-percent-token l-tok)
+              a (if a-tok (parse-alpha-token a-tok) 1)]
+          (when (and h s l a)
+            (conj (hsl->rgb h s l) a)))))))
+
 (defn parse-color
   "Parses any of this namespace's supported CSS `<color>` forms (see
    namespace docstring) into `[r g b a]`, each channel a float in 0..1.
    Returns nil for anything this parser doesn't understand (typo,
-   unresolved `var()`, `hsl()`, etc.) -- callers decide the fallback (see
+   unresolved `var()`, `lab()`, etc.) -- callers decide the fallback (see
    `->rgba`); this function itself never throws and never guesses."
   [color]
   (when (string? color)
@@ -336,6 +396,7 @@
             (= ls "transparent") [0 0 0 0]
             (str/starts-with? ls "#") (parse-hex (subs ls 1))
             (str/starts-with? ls "rgb") (parse-rgb-fn ls)
+            (str/starts-with? ls "hsl") (parse-hsl-fn ls)
             :else (when-let [[r g b] (get named-colors ls)]
                     [(unit r) (unit g) (unit b) 1])))))))
 
@@ -347,7 +408,7 @@
   "hex is (despite the name, kept for call-site continuity) any CSS color
    string this namespace's `parse-color` understands: `#rgb`/`#rrggbb`/
    `#rgba`/`#rrggbbaa` hex, one of the 148 named colors + `transparent`,
-   or `rgb()`/`rgba()` functional notation.
+   `rgb()`/`rgba()`, or `hsl()`/`hsla()` functional notation.
 
    `alpha` is the SEPARATE, already-cascaded CSS `opacity` value (see the
    namespace docstring's ALPHA CONTRACT) -- it multiplies with the
