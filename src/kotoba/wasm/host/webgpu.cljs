@@ -4,6 +4,7 @@
   layout draw ops, renders rects with WebGPU, and paints text on a canvas
   overlay until glyph atlas/text shaping is implemented."
   (:require [kotoba.wasm.host.browser-events :as browser-events]
+            [kotoba.wasm.host.color :as color]
             [kotoba.wasm.host.retained :as retained]))
 
 (def shader-source
@@ -26,23 +27,6 @@
      return in.color;
    }")
 
-(defn- hex->rgba
-  "hex is a `#rrggbb` color string, which carries no alpha channel of its
-   own -- CSS `opacity` is a separate cascaded value (computed
-   cumulatively down the element tree by cssom.layout and stamped onto
-   every draw op as `:opacity`, see layout.cljc's `opacity (* opacity
-   (:opacity st))`), so callers pass it through explicitly as `alpha`.
-   Defaults to fully opaque (1) so every existing call site that doesn't
-   pass one is unaffected."
-  ([hex] (hex->rgba hex 1))
-  ([hex alpha]
-   (let [s (if (= \# (first hex)) (subs hex 1) hex)
-         n (js/parseInt s 16)]
-     [(/ (bit-and (bit-shift-right n 16) 255) 255)
-      (/ (bit-and (bit-shift-right n 8) 255) 255)
-      (/ (bit-and n 255) 255)
-      alpha])))
-
 (defn- resize-canvas! [canvas width height dpr]
   (let [pixel-w (long (* width dpr))
         pixel-h (long (* height dpr))]
@@ -60,7 +44,7 @@
   (- 1 (* 2 (/ y height))))
 
 (defn- rect-vertices [width height {:keys [x y w h color opacity]}]
-  (let [[r g b a] (hex->rgba color (or opacity 1))
+  (let [[r g b a] (color/->rgba color (or opacity 1))
         x0 (clip-x width x)
         x1 (clip-x width (+ x w))
         y0 (clip-y height y)

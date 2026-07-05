@@ -5,6 +5,7 @@
   canvas overlay."
   (:require [kotoba.wasm.host :as host]
             [kotoba.wasm.host.browser-events :as browser-events]
+            [kotoba.wasm.host.color :as color]
             [kotoba.wasm.host.retained :as retained]))
 
 (def vertex-source
@@ -39,23 +40,6 @@
     (when-not (.getProgramParameter gl p (.-LINK_STATUS gl))
       (throw (js/Error. (.getProgramInfoLog gl p))))
     p))
-
-(defn- hex->rgba
-  "hex is a `#rrggbb` color string, which carries no alpha channel of its
-   own -- CSS `opacity` is a separate cascaded value (computed
-   cumulatively down the element tree by cssom.layout and stamped onto
-   every draw op as `:opacity`, see layout.cljc's `opacity (* opacity
-   (:opacity st))`), so callers pass it through explicitly as `alpha`.
-   Defaults to fully opaque (1) so every existing call site that doesn't
-   pass one is unaffected."
-  ([hex] (hex->rgba hex 1))
-  ([hex alpha]
-   (let [s (if (= \# (first hex)) (subs hex 1) hex)
-         n (js/parseInt s 16)]
-     [(/ (bit-and (bit-shift-right n 16) 255) 255)
-      (/ (bit-and (bit-shift-right n 8) 255) 255)
-      (/ (bit-and n 255) 255)
-      alpha])))
 
 (defn- resize-canvas! [canvas width height dpr]
   (let [pixel-w (long (* width dpr))
@@ -119,7 +103,7 @@
   (.scissor gl x (- canvas-h (+ y h)) w h))
 
 (defn- draw-rect! [gl buffer position-loc color-loc x y w h color opacity]
-  (let [[r g b a] (hex->rgba color opacity)
+  (let [[r g b a] (color/->rgba color opacity)
         verts (js/Float32Array.
                #js [x y
                     (+ x w) y
