@@ -40,13 +40,22 @@
       (throw (js/Error. (.getProgramInfoLog gl p))))
     p))
 
-(defn- hex->rgba [hex]
-  (let [s (if (= \# (first hex)) (subs hex 1) hex)
-        n (js/parseInt s 16)]
-    [(/ (bit-and (bit-shift-right n 16) 255) 255)
-     (/ (bit-and (bit-shift-right n 8) 255) 255)
-     (/ (bit-and n 255) 255)
-     1]))
+(defn- hex->rgba
+  "hex is a `#rrggbb` color string, which carries no alpha channel of its
+   own -- CSS `opacity` is a separate cascaded value (computed
+   cumulatively down the element tree by cssom.layout and stamped onto
+   every draw op as `:opacity`, see layout.cljc's `opacity (* opacity
+   (:opacity st))`), so callers pass it through explicitly as `alpha`.
+   Defaults to fully opaque (1) so every existing call site that doesn't
+   pass one is unaffected."
+  ([hex] (hex->rgba hex 1))
+  ([hex alpha]
+   (let [s (if (= \# (first hex)) (subs hex 1) hex)
+         n (js/parseInt s 16)]
+     [(/ (bit-and (bit-shift-right n 16) 255) 255)
+      (/ (bit-and (bit-shift-right n 8) 255) 255)
+      (/ (bit-and n 255) 255)
+      alpha])))
 
 (defn- resize-canvas! [canvas width height dpr]
   (let [pixel-w (long (* width dpr))
@@ -74,8 +83,8 @@
     (set! (.-font ctx) (str font-size "px ui-sans-serif, system-ui, sans-serif"))
     (.-width (.measureText ctx text))))
 
-(defn- draw-rect! [gl buffer position-loc color-loc x y w h color]
-  (let [[r g b a] (hex->rgba color)
+(defn- draw-rect! [gl buffer position-loc color-loc x y w h color opacity]
+  (let [[r g b a] (hex->rgba color opacity)
         verts (js/Float32Array.
                #js [x y
                     (+ x w) y
@@ -109,11 +118,13 @@
     (doseq [op ops]
       (case (:draw/op op)
         :rect (draw-rect! gl buffer position-loc color-loc
-                          (:x op) (:y op) (:w op) (:h op) (:color op))
+                          (:x op) (:y op) (:w op) (:h op) (:color op) (:opacity op 1))
         :text (do
                 (set! (.-fillStyle text-ctx) (:color op))
                 (set! (.-font text-ctx) (str (:font-size op 14) "px ui-sans-serif, system-ui, sans-serif"))
-                (.fillText text-ctx (:text op) (:x op) (+ (:y op) (:font-size op 14))))
+                (set! (.-globalAlpha text-ctx) (:opacity op 1))
+                (.fillText text-ctx (:text op) (:x op) (+ (:y op) (:font-size op 14)))
+                (set! (.-globalAlpha text-ctx) 1))
         :node nil
         nil))
     (.restore text-ctx)
@@ -145,6 +156,14 @@
         text-ctx (.getContext text-canvas "2d")
         program (program! gl)
         buffer (.createBuffer gl)]
+    ;; Standard "over" alpha blending so :rect ops carrying a fractional
+    ;; :opacity (nested CSS `opacity` cascaded down by cssom.layout)
+    ;; actually blend against whatever is already in the color buffer
+    ;; (previously drawn rects, or the clearColor) instead of just
+    ;; overwriting it -- without this, u_color's alpha channel has no
+    ;; visual effect at all regardless of what draw-rect! passes it.
+    (.enable gl (.-BLEND gl))
+    (.blendFunc gl (.-SRC_ALPHA gl) (.-ONE_MINUS_SRC_ALPHA gl))
     {:state (atom (merge retained/base-state
                          {:gl gl
                           :text-ctx text-ctx

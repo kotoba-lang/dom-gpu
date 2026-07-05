@@ -26,13 +26,22 @@
      return in.color;
    }")
 
-(defn- hex->rgba [hex]
-  (let [s (if (= \# (first hex)) (subs hex 1) hex)
-        n (js/parseInt s 16)]
-    [(/ (bit-and (bit-shift-right n 16) 255) 255)
-     (/ (bit-and (bit-shift-right n 8) 255) 255)
-     (/ (bit-and n 255) 255)
-     1]))
+(defn- hex->rgba
+  "hex is a `#rrggbb` color string, which carries no alpha channel of its
+   own -- CSS `opacity` is a separate cascaded value (computed
+   cumulatively down the element tree by cssom.layout and stamped onto
+   every draw op as `:opacity`, see layout.cljc's `opacity (* opacity
+   (:opacity st))`), so callers pass it through explicitly as `alpha`.
+   Defaults to fully opaque (1) so every existing call site that doesn't
+   pass one is unaffected."
+  ([hex] (hex->rgba hex 1))
+  ([hex alpha]
+   (let [s (if (= \# (first hex)) (subs hex 1) hex)
+         n (js/parseInt s 16)]
+     [(/ (bit-and (bit-shift-right n 16) 255) 255)
+      (/ (bit-and (bit-shift-right n 8) 255) 255)
+      (/ (bit-and n 255) 255)
+      alpha])))
 
 (defn- resize-canvas! [canvas width height dpr]
   (let [pixel-w (long (* width dpr))
@@ -50,8 +59,8 @@
 (defn- clip-y [height y]
   (- 1 (* 2 (/ y height))))
 
-(defn- rect-vertices [width height {:keys [x y w h color]}]
-  (let [[r g b a] (hex->rgba color)
+(defn- rect-vertices [width height {:keys [x y w h color opacity]}]
+  (let [[r g b a] (hex->rgba color (or opacity 1))
         x0 (clip-x width x)
         x1 (clip-x width (+ x w))
         y0 (clip-y height y)
@@ -84,7 +93,9 @@
       (when (= :text (:draw/op op))
         (set! (.-fillStyle text-ctx) (:color op))
         (set! (.-font text-ctx) (str (:font-size op 14) "px ui-sans-serif, system-ui, sans-serif"))
-        (.fillText text-ctx (:text op) (:x op) (+ (:y op) (:font-size op 14)))))
+        (set! (.-globalAlpha text-ctx) (:opacity op 1))
+        (.fillText text-ctx (:text op) (:x op) (+ (:y op) (:font-size op 14)))
+        (set! (.-globalAlpha text-ctx) 1)))
     (.restore text-ctx)))
 
 (defn- render-gpu! [state ops]
@@ -175,11 +186,33 @@
                                                             #js {:shaderLocation 1 :offset 8 :format "float32x4"}]}]}
                                 :fragment #js {:module module
                                                :entryPoint "fs"
-                                               :targets #js [#js {:format format}]}
+                                               ;; Standard "over" alpha blending so :rect ops
+                                               ;; carrying a fractional :opacity (nested CSS
+                                               ;; `opacity` cascaded down by cssom.layout, threaded
+                                               ;; through rect-vertices' per-vertex color above)
+                                               ;; actually blend against whatever this render pass
+                                               ;; already drew/cleared instead of just overwriting
+                                               ;; it -- without this, the fragment shader's alpha
+                                               ;; output has no visual effect at all.
+                                               :targets #js [#js {:format format
+                                                                  :blend #js {:color #js {:srcFactor "src-alpha"
+                                                                                          :dstFactor "one-minus-src-alpha"
+                                                                                          :operation "add"}
+                                                                              :alpha #js {:srcFactor "src-alpha"
+                                                                                          :dstFactor "one-minus-src-alpha"
+                                                                                          :operation "add"}}}]}
                                 :primitive #js {:topology "triangle-list"}})
                  vertex-buffer (.createBuffer device #js {:size (* 6 4096 4)
                                                           :usage (bit-or js/GPUBufferUsage.VERTEX
                                                                          js/GPUBufferUsage.COPY_DST)})]
+             ;; alphaMode only governs how this canvas's own final output
+             ;; alpha composites against the DOM page behind it (parity
+             ;; with webgl.cljs's `#js {:alpha false}` context attribute);
+             ;; it has no effect on how draw ops within a single frame
+             ;; blend against each other or against the pass's own
+             ;; clearValue -- that is entirely the render pipeline's
+             ;; :blend state above. So "opaque" stays correct here and
+             ;; does not need to become "premultiplied" for this fix.
              (.configure context #js {:device device :format format :alphaMode "opaque"})
              {:state (atom (merge retained/base-state
                                   {:device device
