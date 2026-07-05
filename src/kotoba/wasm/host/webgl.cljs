@@ -83,6 +83,41 @@
     (set! (.-font ctx) (str font-size "px ui-sans-serif, system-ui, sans-serif"))
     (.-width (.measureText ctx text))))
 
+(defn- rect-intersect
+  "Intersects two `{:x :y :w :h}` rects (same top-left, logical-pixel
+   shape :clip/:rect/:text draw ops already share). Used to narrow a
+   nested `:clip` push down to whatever clip region was already active,
+   per cssom.layout/layout-block's :clip push/pop pairs, which can nest
+   (a scrollable container inside another scrollable container) -- each
+   nested push must intersect with its ancestor's clip, not replace it."
+  [a b]
+  (let [x1 (max (:x a) (:x b))
+        y1 (max (:y a) (:y b))
+        x2 (min (+ (:x a) (:w a)) (+ (:x b) (:w b)))
+        y2 (min (+ (:y a) (:h a)) (+ (:y b) (:h b)))]
+    {:x x1 :y y1 :w (max 0 (- x2 x1)) :h (max 0 (- y2 y1))}))
+
+(defn- clip-rect-px
+  "Converts a `:clip` draw op's x/y/w/h -- CSS/logical pixels, the same
+   coordinate space :rect/:text draw ops already use -- into physical
+   framebuffer pixels by scaling by `dpr`, mirroring resize-canvas!'s own
+   `(long (* n dpr))` scaling of the canvas element itself. `gl.scissor`
+   operates on the physical framebuffer, not the logical CSS pixel grid
+   draw ops are expressed in, so it needs this same scaling `draw-rect!`'s
+   vertex-shader normalization gets for free via u_resolution."
+  [dpr op]
+  {:x (long (* dpr (:x op))) :y (long (* dpr (:y op)))
+   :w (long (* dpr (:w op))) :h (long (* dpr (:h op)))})
+
+(defn- scissor!
+  "WebGL's scissor box origin is bottom-left, unlike the top-left
+   draw-ops coordinate system -- flip y using the physical canvas height,
+   the same top-left/bottom-left reconciliation the vertex shader already
+   does for vertex positions via `clip * vec2(1.0, -1.0)` in
+   vertex-source above."
+  [gl canvas-h {:keys [x y w h]}]
+  (.scissor gl x (- canvas-h (+ y h)) w h))
+
 (defn- draw-rect! [gl buffer position-loc color-loc x y w h color opacity]
   (let [[r g b a] (hex->rgba color opacity)
         verts (js/Float32Array.
@@ -110,23 +145,61 @@
     (.viewport gl 0 0 (.-width gl-canvas) (.-height gl-canvas))
     (.useProgram gl program)
     (.uniform2f gl resolution-loc width height)
+    ;; Defensively reset scissor state before this frame's own clear/draws
+    ;; -- if a previous frame's ops somehow left the clip stack unbalanced
+    ;; (SCISSOR_TEST would otherwise carry over and clip the .clear below).
+    (.disable gl (.-SCISSOR_TEST gl))
     (.clearColor gl 0.043 0.055 0.078 1)
     (.clear gl (.-COLOR_BUFFER_BIT gl))
     (.save text-ctx)
     (.setTransform text-ctx dpr 0 0 dpr 0 0)
     (.clearRect text-ctx 0 0 width height)
-    (doseq [op ops]
-      (case (:draw/op op)
-        :rect (draw-rect! gl buffer position-loc color-loc
-                          (:x op) (:y op) (:w op) (:h op) (:color op) (:opacity op 1))
-        :text (do
-                (set! (.-fillStyle text-ctx) (:color op))
-                (set! (.-font text-ctx) (str (:font-size op 14) "px ui-sans-serif, system-ui, sans-serif"))
-                (set! (.-globalAlpha text-ctx) (:opacity op 1))
-                (.fillText text-ctx (:text op) (:x op) (+ (:y op) (:font-size op 14)))
-                (set! (.-globalAlpha text-ctx) 1))
-        :node nil
-        nil))
+    ;; A plain doseq can't thread the nested `:clip` stack (see
+    ;; rect-intersect) through to later ops, so this loop carries it as
+    ;; `stack` -- a vector of already-intersected `{:x :y :w :h}` rects,
+    ;; one per currently-open :clip push, narrowest (most recent) last.
+    (loop [remaining ops stack []]
+      (when-let [op (first remaining)]
+        (recur
+         (rest remaining)
+         (case (:draw/op op)
+           :rect (do (draw-rect! gl buffer position-loc color-loc
+                                 (:x op) (:y op) (:w op) (:h op) (:color op) (:opacity op 1))
+                     stack)
+           :text (do
+                   (set! (.-fillStyle text-ctx) (:color op))
+                   (set! (.-font text-ctx) (str (:font-size op 14) "px ui-sans-serif, system-ui, sans-serif"))
+                   (set! (.-globalAlpha text-ctx) (:opacity op 1))
+                   (.fillText text-ctx (:text op) (:x op) (+ (:y op) (:font-size op 14)))
+                   (set! (.-globalAlpha text-ctx) 1)
+                   stack)
+           :clip (case (:clip/op op)
+                   :push
+                   (let [canvas-w (.-width gl-canvas)
+                         canvas-h (.-height gl-canvas)
+                         prev (or (peek stack) {:x 0 :y 0 :w canvas-w :h canvas-h})
+                         rect (rect-intersect prev (clip-rect-px dpr op))]
+                     (.enable gl (.-SCISSOR_TEST gl))
+                     (scissor! gl canvas-h rect)
+                     ;; Canvas2D's own .clip() intersects with whatever
+                     ;; clip path is already active at the time of the
+                     ;; matching .save() (per spec), so nesting needs no
+                     ;; manual rect-intersection bookkeeping the way
+                     ;; gl.scissor's single active rect does above.
+                     (.save text-ctx)
+                     (.beginPath text-ctx)
+                     (.rect text-ctx (:x op) (:y op) (:w op) (:h op))
+                     (.clip text-ctx)
+                     (conj stack rect))
+                   :pop
+                   (let [stack' (pop stack)]
+                     (if (seq stack')
+                       (scissor! gl (.-height gl-canvas) (peek stack'))
+                       (.disable gl (.-SCISSOR_TEST gl)))
+                     (.restore text-ctx)
+                     stack'))
+           :node stack
+           stack))))
     (.restore text-ctx)
     (assoc state :draw-ops ops)))
 
