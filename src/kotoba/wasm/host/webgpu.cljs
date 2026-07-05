@@ -90,25 +90,123 @@
     (.setTransform text-ctx dpr 0 0 dpr 0 0)
     (.clearRect text-ctx 0 0 width height)
     (doseq [op ops]
-      (when (= :text (:draw/op op))
-        (set! (.-fillStyle text-ctx) (:color op))
-        (set! (.-font text-ctx) (str (:font-size op 14) "px ui-sans-serif, system-ui, sans-serif"))
-        (set! (.-globalAlpha text-ctx) (:opacity op 1))
-        (.fillText text-ctx (:text op) (:x op) (+ (:y op) (:font-size op 14)))
-        (set! (.-globalAlpha text-ctx) 1)))
+      (case (:draw/op op)
+        :clip (case (:clip/op op)
+                ;; Canvas2D's own .clip() intersects with whatever clip
+                ;; path is already active at the time of the matching
+                ;; .save() (per spec), so nested `:clip` push/pop pairs
+                ;; (a scrollable container inside another) need no manual
+                ;; rect-intersection bookkeeping the way render-gpu!'s
+                ;; scissor rects below do -- each :push's .save()+.clip()
+                ;; naturally narrows down from its enclosing :push's own
+                ;; clip, and :pop's .restore() naturally reverts to it.
+                :push (do (.save text-ctx)
+                          (.beginPath text-ctx)
+                          (.rect text-ctx (:x op) (:y op) (:w op) (:h op))
+                          (.clip text-ctx))
+                :pop (.restore text-ctx))
+        :text (do
+                (set! (.-fillStyle text-ctx) (:color op))
+                (set! (.-font text-ctx) (str (:font-size op 14) "px ui-sans-serif, system-ui, sans-serif"))
+                (set! (.-globalAlpha text-ctx) (:opacity op 1))
+                (.fillText text-ctx (:text op) (:x op) (+ (:y op) (:font-size op 14)))
+                (set! (.-globalAlpha text-ctx) 1))
+        nil))
     (.restore text-ctx)))
 
+(defn- rect-intersect
+  "Intersects two `{:x :y :w :h}` rects -- see kotoba.wasm.host.webgl's
+   identical helper for the full rationale (shared here since nested
+   `:clip` push/pop ops need the same narrowing-to-ancestor behavior
+   regardless of backend)."
+  [a b]
+  (let [x1 (max (:x a) (:x b))
+        y1 (max (:y a) (:y b))
+        x2 (min (+ (:x a) (:w a)) (+ (:x b) (:w b)))
+        y2 (min (+ (:y a) (:h a)) (+ (:y b) (:h b)))]
+    {:x x1 :y y1 :w (max 0 (- x2 x1)) :h (max 0 (- y2 y1))}))
+
+(defn- clip-rect-px
+  "Scales a `:clip` draw op's x/y/w/h -- CSS/logical pixels, the same
+   coordinate space rect-vertices' own x/y/w/h already use -- into
+   physical framebuffer pixels by `dpr`, matching what `setScissorRect`
+   expects (the physical swapchain texture, not the logical CSS pixel
+   grid draw ops are expressed in). See kotoba.wasm.host.webgl's
+   identical helper for the WebGL-side counterpart; unlike WebGL,
+   `setScissorRect`'s origin is already top-left, so no y-flip is needed
+   here."
+  [dpr op]
+  {:x (long (* dpr (:x op))) :y (long (* dpr (:y op)))
+   :w (long (* dpr (:w op))) :h (long (* dpr (:h op)))})
+
+(defn- clip-segments
+  "Walks `ops` in order, threading a clip-rect stack through `:clip`
+   push/pop ops (see cssom.layout/layout-block, which brackets any
+   element whose `overflow` isn't `visible` with matched
+   `{:draw/op :clip :clip/op :push/:pop}` pairs carrying that element's
+   own x/y/w/h border box), and groups consecutive `:rect` ops that share
+   the same active clip rect into one segment.
+
+   This exists because, unlike webgl.cljs's render! (which walks ops one
+   at a time in its own doseq, so a scissor rect can simply be changed
+   in between individual draw calls), render-gpu! below batches every
+   `:rect` op across the WHOLE frame into one vertex buffer and issues a
+   SINGLE `.draw` call -- a scissor rect can only take effect BETWEEN
+   draw calls, not mid-draw, so supporting per-element clipping means
+   splitting that one draw call into one per contiguous run of rects that
+   share an active clip.
+
+   When no `:clip` ops are present at all (the common case: nothing on
+   the page uses non-visible `overflow`), every `:rect` op shares the
+   same (nil) active clip and this collapses back to exactly one segment
+   -- i.e. exactly the single whole-frame draw call render-gpu! always
+   issued before clip support existed, with no performance regression for
+   pages that don't scroll/clip anything."
+  [ops dpr fb-width fb-height]
+  (let [full {:x 0 :y 0 :w fb-width :h fb-height}]
+    (loop [remaining ops stack [] segments [] current nil]
+      (if-let [op (first remaining)]
+        (case (:draw/op op)
+          :rect
+          (let [scissor (peek stack)]
+            (if (and current (= (:scissor current) scissor))
+              (recur (rest remaining) stack segments (update current :rects conj op))
+              (recur (rest remaining) stack (cond-> segments current (conj current))
+                     {:scissor scissor :rects [op]})))
+          :clip
+          (recur (rest remaining)
+                 (case (:clip/op op)
+                   :push (conj stack (rect-intersect (or (peek stack) full)
+                                                      (clip-rect-px dpr op)))
+                   :pop (pop stack))
+                 segments current)
+          (recur (rest remaining) stack segments current))
+        (cond-> segments current (conj current))))))
+
 (defn- render-gpu! [state ops]
-  (let [{:keys [device context pipeline vertex-buffer width height]} state
+  (let [{:keys [device context pipeline vertex-buffer width height dpr]} state
         ^js device device
         ^js context context
         ^js pipeline pipeline
         ^js vertex-buffer vertex-buffer
+        ^js gpu-canvas (:gpu-canvas state)
         ^js queue (.-queue device)
-        rects (filter #(= :rect (:draw/op %)) ops)
-        floats (mapcat #(rect-vertices width height %) rects)
-        data (js/Float32Array. (clj->js (vec floats)))
+        fb-width (.-width gpu-canvas)
+        fb-height (.-height gpu-canvas)
+        segments (clip-segments ops dpr fb-width fb-height)
+        seg-floats (mapv (fn [seg] (vec (mapcat #(rect-vertices width height %) (:rects seg)))) segments)
+        data (js/Float32Array. (clj->js (vec (mapcat identity seg-floats))))
         byte-length (.-byteLength data)]
+    ;; All segments' vertex data is written in ONE writeBuffer call (at
+    ;; increasing offsets implied by concatenation order) so every
+    ;; segment's later .draw call can address its own slice via
+    ;; `first-vertex` below -- writing each segment separately right
+    ;; before its own .draw would NOT work: queue.writeBuffer calls are
+    ;; all ordered before this function's single .submit, but a command
+    ;; buffer's draw calls only actually read the buffer's contents when
+    ;; the GPU executes them AFTER .submit, by which point a second
+    ;; writeBuffer to the same bytes would have already silently
+    ;; clobbered the first segment's data underneath both draw calls.
     (when (pos? byte-length)
       (.writeBuffer queue vertex-buffer 0 data))
     (let [^js encoder (.createCommandEncoder device)
@@ -124,7 +222,14 @@
       (.setPipeline pass pipeline)
       (when (pos? byte-length)
         (.setVertexBuffer pass 0 vertex-buffer)
-        (.draw pass (/ (.-length data) 6)))
+        (loop [segs segments floats-seq seg-floats first-vertex 0]
+          (when-let [seg (first segs)]
+            (let [vcount (/ (count (first floats-seq)) 6)
+                  {:keys [x y w h]} (or (:scissor seg) {:x 0 :y 0 :w fb-width :h fb-height})]
+              (.setScissorRect pass x y w h)
+              (when (pos? vcount)
+                (.draw pass vcount 1 first-vertex))
+              (recur (rest segs) (rest floats-seq) (+ first-vertex vcount))))))
       (.end pass)
       (.submit queue #js [(.finish encoder)]))))
 
