@@ -61,11 +61,24 @@
    `CanvasRenderingContext2D.measureText` -- see
    kotoba.wasm.host.webgl's identical helper for the full rationale
    (shared here since the WebGPU host paints text through the same
-   Canvas 2D text overlay technique, see render-text! below)."
+   Canvas 2D text overlay technique, see render-text! below). Same
+   known, documented limitation as that helper: this measurement always
+   uses normal-weight, upright metrics, even for text that will
+   actually paint bold/italic (see text-font-string) -- not attempted
+   here either."
   [ctx]
   (fn [text font-size]
     (set! (.-font ctx) (str font-size "px ui-sans-serif, system-ui, sans-serif"))
     (.-width (.measureText ctx text))))
+
+(defn- text-font-string
+  "See kotoba.wasm.host.webgl's identical helper for the full rationale
+   (shared here since the WebGPU host paints text through the same
+   Canvas 2D text overlay technique)."
+  [op]
+  (str (when-let [fw (:font-weight op)] (when (not= "normal" fw) (str fw " ")))
+       (when-let [fs (:font-style op)] (when (not= "normal" fs) (str fs " ")))
+       (:font-size op 14) "px ui-sans-serif, system-ui, sans-serif"))
 
 (defn- render-text! [state ops]
   (let [{:keys [text-ctx text-canvas width height dpr]} state]
@@ -91,7 +104,7 @@
                 :pop (.restore text-ctx))
         :text (do
                 (set! (.-fillStyle text-ctx) (:color op))
-                (set! (.-font text-ctx) (str (:font-size op 14) "px ui-sans-serif, system-ui, sans-serif"))
+                (set! (.-font text-ctx) (text-font-string op))
                 (set! (.-globalAlpha text-ctx) (:opacity op 1))
                 (.fillText text-ctx (:text op) (:x op) (+ (:y op) (:font-size op 14)))
                 (set! (.-globalAlpha text-ctx) 1))
