@@ -80,6 +80,23 @@
        (when-let [fs (:font-style op)] (when (not= "normal" fs) (str fs " ")))
        (:font-size op 14) "px ui-sans-serif, system-ui, sans-serif"))
 
+(defn- draw-text-decoration!
+  "See kotoba.wasm.host.webgl's identical helper for the full rationale
+   (shared here since the WebGPU host paints text through the same
+   Canvas 2D text overlay technique)."
+  [text-ctx op baseline]
+  (when-let [decoration (:text-decoration op)]
+    (let [font-size (:font-size op 14)
+          line-y (case decoration
+                   "underline" (+ baseline (* font-size 0.12))
+                   "line-through" (- baseline (* font-size 0.3))
+                   "overline" (- baseline (* font-size 0.9))
+                   nil)]
+      (when line-y
+        (let [text-width (.-width (.measureText text-ctx (:text op)))
+              thickness (max 1 (/ font-size 12))]
+          (.fillRect text-ctx (:x op) line-y text-width thickness))))))
+
 (defn- render-text! [state ops]
   (let [{:keys [text-ctx text-canvas width height dpr]} state]
     (resize-canvas! text-canvas width height dpr)
@@ -102,11 +119,12 @@
                           (.rect text-ctx (:x op) (:y op) (:w op) (:h op))
                           (.clip text-ctx))
                 :pop (.restore text-ctx))
-        :text (do
+        :text (let [baseline (+ (:y op) (:font-size op 14))]
                 (set! (.-fillStyle text-ctx) (:color op))
                 (set! (.-font text-ctx) (text-font-string op))
                 (set! (.-globalAlpha text-ctx) (:opacity op 1))
-                (.fillText text-ctx (:text op) (:x op) (+ (:y op) (:font-size op 14)))
+                (.fillText text-ctx (:text op) (:x op) baseline)
+                (draw-text-decoration! text-ctx op baseline)
                 (set! (.-globalAlpha text-ctx) 1))
         nil))
     (.restore text-ctx)))

@@ -133,6 +133,41 @@
        (when-let [fs (:font-style op)] (when (not= "normal" fs) (str fs " ")))
        (:font-size op 14) "px ui-sans-serif, system-ui, sans-serif"))
 
+(defn- draw-text-decoration!
+  "Paints `:text-decoration`'s `underline`/`overline`/`line-through` as a
+   thin filled rect on `text-ctx`, spanning the real, measured width of
+   `(:text op)` at the CURRENT `text-ctx.font` (called after `.fillText`
+   below, so bold/italic's actual wider/narrower glyphs are measured, not
+   normal-weight metrics). cssom.layout now threads a resolved
+   `:text-decoration` onto every :text draw-op the exact same way it
+   already threads `:font-weight`/`:font-style` (see text-font-string) --
+   before this, a real, cascade-resolved `text-decoration: underline` had
+   ZERO visual effect, confirmed via direct REPL reproduction that the
+   resolved :style/text-decoration attr existed but no draw-op ever
+   carried it through to a real paint call. `line-through`/`overline`'s
+   vertical offsets from `baseline` are simple, approximate fractions of
+   `font-size` -- this engine has no real font-metrics/ascent/descent of
+   its own, matching the existing char-width approximation layout.cljc's
+   own word-wrap already uses -- not exact glyph-metrics placement, but
+   visually correct and distinguishable for all three real CSS keywords.
+   Absent, `\"none\"`, or any other unrecognized value paints nothing,
+   matching this op's exact pre-existing (no decoration at all) behavior
+   byte-for-byte. Deliberately scoped to a single keyword at a time --
+   real CSS's own `text-decoration-line: underline overline` multi-value
+   form is not supported."
+  [text-ctx op baseline]
+  (when-let [decoration (:text-decoration op)]
+    (let [font-size (:font-size op 14)
+          line-y (case decoration
+                   "underline" (+ baseline (* font-size 0.12))
+                   "line-through" (- baseline (* font-size 0.3))
+                   "overline" (- baseline (* font-size 0.9))
+                   nil)]
+      (when line-y
+        (let [text-width (.-width (.measureText text-ctx (:text op)))
+              thickness (max 1 (/ font-size 12))]
+          (.fillRect text-ctx (:x op) line-y text-width thickness))))))
+
 (defn- draw-rect! [gl buffer position-loc color-loc x y w h color opacity]
   (let [[r g b a] (color/->rgba color opacity)
         verts (js/Float32Array.
@@ -181,11 +216,12 @@
            :rect (do (draw-rect! gl buffer position-loc color-loc
                                  (:x op) (:y op) (:w op) (:h op) (:color op) (:opacity op 1))
                      stack)
-           :text (do
+           :text (let [baseline (+ (:y op) (:font-size op 14))]
                    (set! (.-fillStyle text-ctx) (:color op))
                    (set! (.-font text-ctx) (text-font-string op))
                    (set! (.-globalAlpha text-ctx) (:opacity op 1))
-                   (.fillText text-ctx (:text op) (:x op) (+ (:y op) (:font-size op 14)))
+                   (.fillText text-ctx (:text op) (:x op) baseline)
+                   (draw-text-decoration! text-ctx op baseline)
                    (set! (.-globalAlpha text-ctx) 1)
                    stack)
            :clip (case (:clip/op op)
