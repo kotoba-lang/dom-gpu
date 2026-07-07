@@ -19,6 +19,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - run: git clone --depth 1 https://github.com/kotoba-lang/cssom.git ../cssom
+      - run: git clone --depth 1 https://github.com/kotoba-lang/htmldom.git ../htmldom
+
       - name: Setup JDK ${{ matrix.java }}
         uses: actions/setup-java@v4
         with:
