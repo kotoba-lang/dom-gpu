@@ -29,8 +29,8 @@
     (is (= :main (get-in s [:nodes 1 :tag])))
     (is (= [2] (get-in s [:nodes 1 :children])))
     (is (= "run" (get-in s [:nodes 2 :attrs :id])))
-    (is (= 99 (get-in s [:listeners 2 :click])))
-    (is (= 100 (get-in s [:listeners 2 :key-down])))))
+    (is (= [99] (get-in s [:listeners 2 :click])))
+    (is (= [100] (get-in s [:listeners 2 :key-down])))))
 
 (deftest retained-node-tree-keeps-listeners-for-layout
   (let [tree (retained/node-tree (state) 1)
@@ -50,11 +50,75 @@
     (testing "the removed event-type is gone"
       (is (not (contains? (get-in s [:listeners 2]) :click))))
     (testing "the OTHER event-type on the same node is untouched"
-      (is (= 100 (get-in s [:listeners 2 :key-down]))))
+      (is (= [100] (get-in s [:listeners 2 :key-down]))))
     (testing "node-tree no longer reports the removed listener"
       (let [tree (retained/node-tree s 1)
             button (first (:children tree))]
         (is (= #{:key-down} (set (:listeners button))))))))
+
+(deftest retained-add-event-listener-supports-multiple-independent-listeners-per-node-and-type
+  ;; Real HTML5 addEventListener supports MULTIPLE independent listeners
+  ;; for the same (element, event-type) pair -- previously a second
+  ;; add-event-listener op here silently overwrote the first via a plain
+  ;; assoc-in, only the most-recently-added listener ever registered at
+  ;; all. Mirrors kotoba.wasm.dom/add-event-listener's own, already-
+  ;; correct multi-listener model.
+  (let [ops (:ops (abi/encode-batch [[:dom/add-event-listener 2 :click 100]]))
+        s (reduce retained/apply-op (state) ops)]
+    (is (= [99 100] (get-in s [:listeners 2 :click]))
+        "both handlers survive, in registration order")))
+
+(deftest retained-add-event-listener-registering-the-same-handler-twice-is-idempotent
+  ;; Matches real addEventListener semantics for a duplicate registration:
+  ;; the SAME handler-id added twice for the same (node, event-type) is a
+  ;; no-op, not a duplicate entry.
+  (let [ops (:ops (abi/encode-batch [[:dom/add-event-listener 2 :click 99]]))
+        s (reduce retained/apply-op (state) ops)]
+    (is (= [99] (get-in s [:listeners 2 :click])))))
+
+(deftest retained-remove-event-listener-removes-only-the-matching-handler-leaving-siblings-intact
+  ;; The companion bug to the multi-listener add fix above: previously
+  ;; remove-event-listener ignored WHICH handler-id was being removed and
+  ;; dissoc'd the WHOLE event-type entry -- removing ONE of two click
+  ;; listeners on the same node silently killed BOTH. Mirrors
+  ;; kotoba.wasm.dom/remove-event-listener's own, already-correct model.
+  (let [add-ops (:ops (abi/encode-batch [[:dom/add-event-listener 2 :click 100]]))
+        remove-ops (:ops (abi/encode-batch [[:dom/remove-event-listener 2 :click 99]]))
+        s (reduce retained/apply-op (state) (concat add-ops remove-ops))]
+    (is (= [100] (get-in s [:listeners 2 :click]))
+        "only handler 99 is removed; handler 100, registered on the SAME (node, event-type), survives")))
+
+(deftest retained-hit-event-dispatches-to-every-registered-handler-not-just-the-first
+  ;; The observable end-to-end consequence of the storage fixes above:
+  ;; a real click on an element with TWO independently-registered click
+  ;; listeners must produce TWO real dispatch events (one per handler,
+  ;; in registration order), not just one.
+  (let [add-ops (:ops (abi/encode-batch [[:dom/add-event-listener 2 :click 100]]))
+        s (retained/with-draw-ops (reduce retained/apply-op (state) add-ops))
+        button-node (some #(when (and (= :node (:draw/op %))
+                                      (= :button (:tag %))) %)
+                          (:draw-ops s))
+        x (+ (:x button-node) 1)
+        y (+ (:y button-node) 1)
+        events (retained/hit-event s x y :click)]
+    (is (= [{:handler 99 :target 2 :name :click :x x :y y}
+            {:handler 100 :target 2 :name :click :x x :y y}]
+           events))))
+
+(deftest retained-queue-hit-event-enqueues-one-event-per-registered-handler
+  ;; queue-hit-event (the fn browser_events.cljs actually calls on a real
+  ;; canvas click) must enqueue ALL of them, not just the first -- this is
+  ;; the real dispatch path a live pointer event goes through, not just
+  ;; the lower-level hit-event helper above.
+  (let [add-ops (:ops (abi/encode-batch [[:dom/add-event-listener 2 :click 100]]))
+        s (retained/with-draw-ops (reduce retained/apply-op (state) add-ops))
+        button-node (some #(when (and (= :node (:draw/op %))
+                                      (= :button (:tag %))) %)
+                          (:draw-ops s))
+        x (+ (:x button-node) 1)
+        y (+ (:y button-node) 1)
+        s2 (retained/queue-hit-event s x y :click)]
+    (is (= [99 100] (mapv :handler (:events s2))))))
 
 (deftest retained-set-text-updates-an-existing-text-nodes-content
   ;; Previously entirely unhandled -- a real Text node's .data/.nodeValue
@@ -95,8 +159,8 @@
       (is (= "#112233" (:color (some #(when (and (= :rect (:draw/op %))
                                                 (= :button (:tag %))) %)
                                     (:draw-ops s))))))
-    (testing "hit-test maps pointer coordinates back to handler id"
-      (is (= {:target 2 :handler 99} hit)))
+    (testing "hit-test maps pointer coordinates back to the registered handler id(s)"
+      (is (= {:target 2 :handlers [99]} hit)))
     (testing "wrong event type does not hit"
       (is (nil? (retained/hit-test s (:x button-node) (:y button-node) :input))))))
 
@@ -153,7 +217,7 @@
                     [:dom/set-attr 2 :style/height 50]
                     [:dom/append-child 1 2]]))
         s (retained/with-draw-ops (reduce retained/apply-op (merge retained/base-state {:width 320}) ops))]
-    (is (= {:target 1 :handler 222} (retained/hit-test s 10 10 :click)))))
+    (is (= {:target 1 :handlers [222]} (retained/hit-test s 10 10 :click)))))
 
 (deftest retained-host-builds-pointer-and-focused-events
   (let [s (retained/with-draw-ops (state))
@@ -162,14 +226,14 @@
                           (:draw-ops s))
         x (+ (:x button-node) 1)
         y (+ (:y button-node) 1)
-        event (retained/hit-event s x y :click)]
+        events (retained/hit-event s x y :click)]
     (testing "hit events carry handler, target, event name, and coordinates"
-      (is (= {:handler 99 :target 2 :name :click :x x :y y} event)))
+      (is (= [{:handler 99 :target 2 :name :click :x x :y y}] events)))
     (testing "queue-hit-event also establishes focus for keyboard input"
       (let [s (retained/queue-hit-event s x y :click)
-            key-event (retained/focused-event s :key-down {:key "Enter"})]
+            key-events (retained/focused-event s :key-down {:key "Enter"})]
         (is (= 2 (:focus s)))
-        (is (= {:handler 100 :target 2 :name :key-down :key "Enter"} key-event))))
+        (is (= [{:handler 100 :target 2 :name :key-down :key "Enter"}] key-events))))
     (testing "queue-focused-event is a no-op without a focused listener"
       (let [s (retained/queue-focused-event s :input {:value "abc"})]
         (is (empty? (:events s)))))))

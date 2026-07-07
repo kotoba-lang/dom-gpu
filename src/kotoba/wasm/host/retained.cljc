@@ -69,7 +69,25 @@
                     (conj children (:child op))))))
 
     :add-event-listener
-    (assoc-in state [:listeners (:id op) (normalize-event-name (:name op))] (:handler op))
+    ;; Real HTML5 addEventListener supports MULTIPLE independent listeners
+    ;; for the same (element, event-type) pair -- e.g. a framework and
+    ;; user code each attaching their own click handler to the same
+    ;; button -- so this keeps an ORDERED collection of handler-ids per
+    ;; (node-id, event-name), not a single scalar. Previously a plain
+    ;; assoc-in here silently overwrote any prior handler-id for the same
+    ;; node+event-type, confirmed via direct REPL reproduction: a second
+    ;; add-event-listener op on the same (node, :click) dropped the
+    ;; first handler's registration entirely, only the most-recently-
+    ;; added one ever matched in hit-test/listener-event below. Mirrors
+    ;; kotoba.wasm.dom/add-event-listener's own, already-correct model
+    ;; (this retained-tree host layer never got the same fix when that
+    ;; one was made) -- adding the exact same handler-id twice is a
+    ;; no-op (idempotent), matching real addEventListener semantics for
+    ;; a duplicate registration.
+    (update-in state [:listeners (:id op) (normalize-event-name (:name op))]
+               (fn [ids]
+                 (let [ids (or ids [])]
+                   (if (some #{(:handler op)} ids) ids (conj ids (:handler op))))))
 
     :remove-event-listener
     ;; Previously entirely unhandled here (falling through to the default
@@ -81,7 +99,25 @@
     ;; removal -- a node's own node-tree projection (and this session's
     ;; own draw-ops :listeners field) would keep reporting a listener
     ;; that real dispatch logic elsewhere had already stopped calling.
-    (update-in state [:listeners (:id op)] dissoc (normalize-event-name (:name op)))
+    ;;
+    ;; Once :add-event-listener above started keeping an ORDERED
+    ;; collection of handler-ids (not a scalar), this case's own plain
+    ;; `dissoc` of the whole event-type entry became a second, related
+    ;; bug: it ignored WHICH handler-id was actually being removed and
+    ;; wiped every listener registered for that (node, event-type) pair
+    ;; -- confirmed via direct REPL reproduction: removing one of two
+    ;; click listeners on the same node dropped BOTH. Mirrors
+    ;; kotoba.wasm.dom/remove-event-listener's own, already-correct
+    ;; model: remove only the matching handler-id, leaving every other
+    ;; listener for that same (element, event-type) pair untouched.
+    (let [event-name (normalize-event-name (:name op))
+          handler (:handler op)
+          remaining (vec (remove #{handler} (get-in state [:listeners (:id op) event-name])))]
+      (update-in state [:listeners (:id op)]
+                 (fn [by-type]
+                   (if (seq remaining)
+                     (assoc by-type event-name remaining)
+                     (dissoc by-type event-name)))))
 
     ;; Sibling gap to :remove-event-listener above: kotoba.wasm.abi had no
     ;; case for these four ops either (a real crash, fixed alongside this),
@@ -186,6 +222,14 @@
    an in-flow sibling that DOES have one, let a click on the overlay's
    own blank area silently fire the unrelated sibling underneath's
    handler instead of hitting nothing."
+  ;; `:handlers` is a real vector of EVERY handler-id registered for the
+  ;; matched (node, event-type) pair, not just one -- matching
+  ;; :add-event-listener's own multi-listener storage above. Nothing
+  ;; downstream of hit-test's OWN return value currently reads
+  ;; `:handlers` for dispatch (hit-event immediately re-queries via
+  ;; listener-event below, which is where multi-handler DISPATCH
+  ;; actually matters), but this keeps hit-test's own contract honest
+  ;; about what's really registered, not silently truncated to one.
   [state x y event-name]
   (let [event-name (normalize-event-name event-name)
         topmost (->> (:draw-ops state)
@@ -198,22 +242,36 @@
     (when topmost
       (let [parents (parent-index state)]
         (some (fn [id]
-                (when-let [handler (get-in state [:listeners id event-name])]
-                  {:target id :handler handler}))
+                (when-let [handlers (seq (get-in state [:listeners id event-name]))]
+                  {:target id :handlers (vec handlers)}))
               (ancestor-chain parents topmost))))))
 
 (defn listener-event
+  "Returns a real vector of one event map PER handler-id currently
+   registered for (target, event-name), in REGISTRATION ORDER -- matching
+   real addEventListener dispatch order and kotoba.wasm.dom/dispatch-event's
+   own established convention of one dispatch op per handler invocation.
+   Previously returned a single `{:handler ... :target ... :name ...}` map
+   assuming a scalar handler, silently dropping every listener after the
+   first for a (node, event-type) pair with more than one registered.
+   nil (not an empty vector) when there are no listeners at all, so
+   callers' existing `(when-let [...] ...)` short-circuit is unchanged."
   ([state target event-name]
    (listener-event state target event-name nil))
   ([state target event-name extra]
-   (let [event-name (normalize-event-name event-name)]
-     (when-let [handler (get-in state [:listeners target event-name])]
-       (merge {:handler handler
-               :target target
-               :name event-name}
-              extra)))))
+   (let [event-name (normalize-event-name event-name)
+         handlers (seq (get-in state [:listeners target event-name]))]
+     (when handlers
+       (mapv (fn [handler]
+               (merge {:handler handler
+                       :target target
+                       :name event-name}
+                      extra))
+             handlers)))))
 
 (defn hit-event
+  "A real vector of event maps (see listener-event), one per handler
+   registered on the hit-tested target, or nil if nothing matched."
   ([state x y event-name]
    (hit-event state x y event-name nil))
   ([state x y event-name extra]
@@ -222,6 +280,8 @@
        (listener-event state target event-name (merge {:x x :y y} extra))))))
 
 (defn focused-event
+  "A real vector of event maps (see listener-event), one per handler
+   registered on the currently-focused node, or nil if none/unfocused."
   ([state event-name]
    (focused-event state event-name nil))
   ([state event-name extra]
@@ -236,14 +296,18 @@
   ([state x y event-name]
    (queue-hit-event state x y event-name nil))
   ([state x y event-name extra]
-   (if-let [event (hit-event state x y event-name extra)]
-     (queue-event state event)
+   ;; hit-event/focused-event now return a real vector of one event per
+   ;; registered handler (see listener-event), so every matched handler
+   ;; gets queued -- previously only the single (post-overwrite) handler
+   ;; ever reached the queue at all.
+   (if-let [events (hit-event state x y event-name extra)]
+     (reduce queue-event state events)
      state)))
 
 (defn queue-focused-event
   ([state event-name]
    (queue-focused-event state event-name nil))
   ([state event-name extra]
-   (if-let [event (focused-event state event-name extra)]
-     (enqueue-event state event)
+   (if-let [events (focused-event state event-name extra)]
+     (reduce enqueue-event state events)
      state)))
