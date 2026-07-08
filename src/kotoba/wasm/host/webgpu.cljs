@@ -255,7 +255,19 @@
       (.submit queue #js [(.finish encoder)]))))
 
 (defn- render! [state]
-  (let [ops (retained/draw-ops state (measure-text-fn (:text-ctx state)))]
+  (let [ops (retained/draw-ops state (measure-text-fn (:text-ctx state)))
+        ;; (max ...), never a bare replacement: a caller-supplied :height
+        ;; stays an honored MINIMUM, the content's own real extent only
+        ;; ever grows the canvas, never shrinks it below that floor --
+        ;; mirrors kotoba.wasm.host.webgl/render!'s own identical fix (see
+        ;; retained/content-height's own docstring). Previously missing
+        ;; here entirely: this host's render! resized the canvas straight
+        ;; from the raw, never-updated :height in state, so any page
+        ;; taller than the initial viewport height rendered permanently
+        ;; clipped under WebGPU while the identical ops rendered full
+        ;; height under WebGL.
+        height (max (:height state) (retained/content-height ops))
+        state (assoc state :height height)]
     (resize-canvas! (:gpu-canvas state) (:width state) (:height state) (:dpr state))
     (render-gpu! state ops)
     (render-text! state ops)

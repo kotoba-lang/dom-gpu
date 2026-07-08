@@ -179,6 +179,35 @@
   ([state measure-text]
    (assoc state :draw-ops (draw-ops state measure-text))))
 
+(defn content-height
+  "The max Y-extent any draw op in `ops` reaches, for auto-sizing a host's
+   canvas to the actual laid-out content instead of relying solely on a
+   hand-maintained :height literal in host state -- see
+   kotoba.wasm.host.webgl/render!'s own docstring history for the bug this
+   guards against (a stale :height literal silently clipping a page's real
+   content, confirmed via git history that a fix to a DIFFERENT, duplicated
+   source of truth left the host-state literal render! actually reads
+   untouched). Shared here (rather than duplicated per-backend) so BOTH
+   webgl.cljs and webgpu.cljs auto-grow identically and so this pure
+   computation is testable on the JVM without a live GL/GPU context.
+
+   Reads :y/:h off every op that carries them (:rect and :node both always
+   do; a bare :text op has no explicit :h of its own, but every real page's
+   text always sits inside a wrapping :node/:rect box that already covers
+   at least as tall an area, so omitting :text's own height here is safe,
+   not a guess -- confirmed by cssom.layout's own text-inside-a-box
+   invariant).
+
+   Defensively skips any op whose :y/:h isn't a genuine number -- a real,
+   separate data-integrity gap (some ops can carry string-typed coordinates
+   from an un-coerced upstream value) this function only needs to not be
+   corrupted by, not fix."
+  [ops]
+  (reduce (fn [acc op]
+            (let [y (:y op 0) h (:h op 0)]
+              (if (and (number? y) (number? h)) (max acc (+ y h)) acc)))
+          0 ops))
+
 (defn enqueue-event [state event]
   (update state :events (fnil conj []) event))
 

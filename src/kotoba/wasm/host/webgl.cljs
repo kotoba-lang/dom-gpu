@@ -213,47 +213,6 @@
     (.uniform4f gl color-loc r g b a)
     (.drawArrays gl (.-TRIANGLES gl) 0 6)))
 
-(defn- content-height
-  "The max Y-extent any draw op in `ops` reaches, for auto-sizing the
-   canvas to the actual laid-out content instead of relying solely on a
-   hand-maintained :height literal in host state -- confirmed via git
-   history that this state :height (state's own value, seeded once at
-   create-host! time from a caller-supplied literal like demo.cljs's own
-   viewport-height) drifts out of sync with a growing page's real content:
-   one commit explicitly diagnosed exactly this problem and bumped a
-   DIFFERENT, duplicated source of truth (a static HTML canvas height
-   attr) while leaving the host-state literal this function actually
-   reads untouched, so the fix silently never took effect -- render!
-   still shrank the canvas straight back down to the stale, smaller value
-   every single frame. Reads :y/:h off every op that carries them (:rect
-   and :node both always do; a bare :text op has no explicit :h of its
-   own, but every real page's text always sits inside a wrapping :node/
-   :rect box that already covers at least as tall an area, so omitting
-   :text's own height here is safe, not a guess -- confirmed by cssom.
-   layout's own text-inside-a-box invariant, not assumed).
-
-   Defensively skips any op whose :y/:h isn't a genuine number -- a real,
-   PRE-EXISTING (and separate, not touched by this fix) data-integrity
-   gap surfaced while building this function: at least one demo page's
-   own box-shadow :rect op carries STRING :x/:y (e.g. \"460146820\"),
-   confirmed via direct console inspection, most likely because
-   ClojureScript's `+`/`-` compile straight to native JS operators with
-   NO runtime numeric type-check (unlike Clojure/JVM's own ClassCastException
-   for a non-Number +) -- so a single un-coerced string reaching this kind
-   of arithmetic anywhere upstream silently produces JS string-
-   concatenation garbage instead of failing loudly, and that garbage then
-   flows through every later + it touches. cssom.layout's own node-style
-   (layout.cljc ~line 671-675) never wraps :box-shadow-x/:box-shadow-y/
-   :box-shadow-spread in parse-int the way :padding/:margin/:border-width
-   already are -- a real, separate, un-fixed root cause left for a
-   dedicated future cycle to track down and fix properly (this function
-   only needs to not be corrupted BY it, not solve it)."
-  [ops]
-  (reduce (fn [acc op]
-            (let [y (:y op 0) h (:h op 0)]
-              (if (and (number? y) (number? h)) (max acc (+ y h)) acc)))
-          0 ops))
-
 (defn- render! [state]
   (let [{:keys [gl text-ctx gl-canvas text-canvas program buffer width height dpr]} state
         ops (retained/draw-ops state (measure-text-fn text-ctx))
@@ -261,8 +220,11 @@
         ;; :height stays an honored MINIMUM (e.g. "always show at least a
         ;; full viewport of background even for a short/empty page"), the
         ;; content's own real extent only ever grows the canvas, never
-        ;; shrinks it below that floor.
-        height (max height (content-height ops))
+        ;; shrinks it below that floor. See retained/content-height's own
+        ;; docstring for the bug this guards against and why it now lives
+        ;; in the shared kotoba.wasm.host.retained namespace instead of
+        ;; being duplicated per-backend (webgpu.cljs's render! shares it).
+        height (max height (retained/content-height ops))
         position-loc (.getAttribLocation gl program "a_pos")
         resolution-loc (.getUniformLocation gl program "u_resolution")
         color-loc (.getUniformLocation gl program "u_color")]

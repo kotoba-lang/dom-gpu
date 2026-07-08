@@ -306,6 +306,35 @@
         text-ops (filterv #(= :text (:draw/op %)) (:draw-ops s))]
     (is (= ["WWWWW" "WWWWW"] (mapv :text text-ops)))))
 
+;; ---- kotoba.wasm.host.retained/content-height -- shared canvas
+;; auto-sizing logic. Real bug this guards: kotoba.wasm.host.webgpu's own
+;; render! previously resized its canvas straight from the raw, never-
+;; updated :height in host state, with no equivalent of this computation
+;; at all -- any page taller than the initial viewport height rendered
+;; permanently clipped under WebGPU, while the identical ops rendered full
+;; height under the WebGL host's own (until now, separately duplicated)
+;; content-height. Lifted into this shared, JVM-testable namespace so both
+;; backends auto-grow identically and this pure computation never drifts
+;; out of sync between them again. ----
+
+(deftest content-height-is-the-max-y-plus-h-across-every-op-that-carries-both
+  (is (= 150 (retained/content-height [{:y 10 :h 20} {:y 100 :h 50} {:y 5 :h 5}]))))
+
+(deftest content-height-ignores-ops-with-non-numeric-y-or-h
+  ;; A real, separate data-integrity gap this function must not be
+  ;; corrupted by (see its own docstring) -- a string-typed :y/:h must be
+  ;; skipped, not thrown on or coerced into a wrong number.
+  (is (= 20 (retained/content-height [{:y "bad" :h 5} {:y 10 :h 10}]))))
+
+(deftest content-height-of-an-empty-ops-vector-is-zero
+  (is (= 0 (retained/content-height []))))
+
+(deftest content-height-treats-a-missing-y-or-h-as-zero-not-a-skip
+  ;; A :text op (no explicit :h of its own) still contributes its :y --
+  ;; matching the documented "safe to omit :text's own height, its
+  ;; wrapping box already covers at least as tall an area" reasoning.
+  (is (= 40 (retained/content-height [{:y 40 :draw/op :text}]))))
+
 ;; ---- kotoba.wasm.host.retained/apply-op's :remove-child / :insert-before
 ;; cases -- before this fix, these ops had no apply-op case and silently fell
 ;; through to the default `state` branch (a no-op), while abi/op->record
