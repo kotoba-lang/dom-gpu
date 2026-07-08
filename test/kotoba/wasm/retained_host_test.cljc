@@ -288,6 +288,77 @@
         s (retained/with-draw-ops (reduce retained/apply-op (merge retained/base-state {:width 320}) ops))]
     (is (= {:target 2 :handlers [333]} (retained/hit-test s 50 50 :click)))))
 
+;; ---- visibility: hidden/collapse (previously never consulted at all by
+;; hit-test, same class of gap as pointer-events:none above) -- real CSS
+;; treats a visibility:hidden/collapse element as fully transparent to
+;; pointer events, same as pointer-events:none. Confirmed via direct REPL
+;; reproduction before touching source: a visibility:hidden overlay still
+;; fully blocked hit-test's topmost scan exactly like an ordinary opaque
+;; box. ----
+
+(deftest retained-hit-test-passes-through-a-visibility-hidden-overlay
+  (let [ops (:ops (abi/encode-batch
+                   [[:dom/create-element 1 :div]
+                    [:dom/set-root 1]
+                    [:dom/set-attr 1 :style/width 200]
+                    [:dom/create-element 2 :div]
+                    [:dom/set-attr 2 :style/width 200]
+                    [:dom/set-attr 2 :style/height 100]
+                    [:dom/add-event-listener 2 :click 444]
+                    [:dom/create-element 3 :div]
+                    [:dom/set-attr 3 :style/position "absolute"]
+                    [:dom/set-attr 3 :style/left 0]
+                    [:dom/set-attr 3 :style/top 0]
+                    [:dom/set-attr 3 :style/width 200]
+                    [:dom/set-attr 3 :style/height 100]
+                    [:dom/set-attr 3 :style/visibility "hidden"]
+                    [:dom/append-child 1 2]
+                    [:dom/append-child 1 3]]))
+        s (retained/with-draw-ops (reduce retained/apply-op (merge retained/base-state {:width 320}) ops))]
+    (is (= {:target 2 :handlers [444]} (retained/hit-test s 50 50 :click)))))
+
+(deftest retained-hit-test-passes-through-a-visibility-collapse-overlay
+  (let [ops (:ops (abi/encode-batch
+                   [[:dom/create-element 1 :div]
+                    [:dom/set-root 1]
+                    [:dom/set-attr 1 :style/width 200]
+                    [:dom/create-element 2 :div]
+                    [:dom/set-attr 2 :style/width 200]
+                    [:dom/set-attr 2 :style/height 100]
+                    [:dom/add-event-listener 2 :click 555]
+                    [:dom/create-element 3 :div]
+                    [:dom/set-attr 3 :style/position "absolute"]
+                    [:dom/set-attr 3 :style/left 0]
+                    [:dom/set-attr 3 :style/top 0]
+                    [:dom/set-attr 3 :style/width 200]
+                    [:dom/set-attr 3 :style/height 100]
+                    [:dom/set-attr 3 :style/visibility "collapse"]
+                    [:dom/append-child 1 2]
+                    [:dom/append-child 1 3]]))
+        s (retained/with-draw-ops (reduce retained/apply-op (merge retained/base-state {:width 320}) ops))]
+    (is (= {:target 2 :handlers [555]} (retained/hit-test s 50 50 :click)))))
+
+(deftest retained-hit-test-without-visibility-hidden-still-blocks-as-before
+  ;; Regression guard: an ORDINARY listener-less overlay (no visibility
+  ;; declared at all) must still block.
+  (is (nil? (retained/hit-test (overlay-state) 50 50 :click))))
+
+(deftest retained-hit-test-visibility-visible-does-not-block
+  ;; Regression guard: only "hidden"/"collapse" block -- the explicit
+  ;; default, visible, behaves normally.
+  (let [ops (:ops (abi/encode-batch
+                   [[:dom/create-element 1 :div]
+                    [:dom/set-root 1]
+                    [:dom/set-attr 1 :style/width 200]
+                    [:dom/create-element 2 :div]
+                    [:dom/set-attr 2 :style/width 200]
+                    [:dom/set-attr 2 :style/height 100]
+                    [:dom/add-event-listener 2 :click 666]
+                    [:dom/set-attr 2 :style/visibility "visible"]
+                    [:dom/append-child 1 2]]))
+        s (retained/with-draw-ops (reduce retained/apply-op (merge retained/base-state {:width 320}) ops))]
+    (is (= {:target 2 :handlers [666]} (retained/hit-test s 50 50 :click)))))
+
 (deftest retained-host-builds-pointer-and-focused-events
   (let [s (retained/with-draw-ops (state))
         button-node (some #(when (and (= :node (:draw/op %))

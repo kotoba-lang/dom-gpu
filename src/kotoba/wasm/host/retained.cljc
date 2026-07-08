@@ -281,6 +281,12 @@
                      (some (fn [op]
                              (when (and (= :node (:draw/op op))
                                         (not= "none" (:pointer-events op))
+                                        ;; visibility:hidden/collapse is
+                                        ;; fully transparent to pointer
+                                        ;; events too, same as pointer-
+                                        ;; events:none -- previously never
+                                        ;; consulted here either.
+                                        (not (contains? #{"hidden" "collapse"} (:visibility op)))
                                         (<= (:x op) x (+ (:x op) (:w op)))
                                         (<= (:y op) y (+ (:y op) (:h op))))
                                (:id op)))))]

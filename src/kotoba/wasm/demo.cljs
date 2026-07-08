@@ -25,13 +25,29 @@
     [:div {:style {:position "absolute" :top 0 :left 0 :width 120 :height 30
                   :background "#e0a458" :pointer-events "none"}}
      "click me"]]
-   [:span.value {:style {:padding 8}} @(rf/subscribe [:count])]])
+   [:span.value {:style {:padding 8}} @(rf/subscribe [:count])]
+   [:p {:style {:padding 8 :max-width 500}}
+    "visibility:hidden proof: the (invisible) overlay below is painted "
+    "directly on top of the second increment button, fully covering it. "
+    "Previously visibility:hidden was never consulted by hit-test either, "
+    "so a click here would hit the invisible overlay instead -- clicking "
+    "anywhere in that area should still increment the second counter, "
+    "since a visibility:hidden element must be fully transparent to "
+    "pointer events, same as pointer-events:none."]
+   [:div {:style {:position "relative" :width 120 :height 30}}
+    [:button {:style {:width 120 :height 30} :on-click (fn [_] (rf/dispatch [:inc2]))} "increment 2"]
+    [:div {:style {:position "absolute" :top 0 :left 0 :width 120 :height 30
+                  :background "#e0a458" :visibility "hidden"}}
+     "click me"]]
+   [:span.value2 {:style {:padding 8}} @(rf/subscribe [:count2])]])
 
 (defn install-model! []
   (rf/clear!)
-  (rf/reg-event-db :init (fn [_ _] {:count 0}))
+  (rf/reg-event-db :init (fn [_ _] {:count 0 :count2 0}))
   (rf/reg-event-db :inc (fn [db _] (update db :count inc)))
+  (rf/reg-event-db :inc2 (fn [db _] (update db :count2 inc)))
   (rf/reg-sub :count (fn [db _] (:count db)))
+  (rf/reg-sub :count2 (fn [db _] (:count2 db)))
   (rf/dispatch-sync [:init]))
 
 (defn ^:export init! []

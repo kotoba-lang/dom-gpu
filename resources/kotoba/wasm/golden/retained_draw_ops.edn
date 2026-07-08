@@ -20,7 +20,8 @@
   :x 0,
   :tag :main,
   :pointer-events nil,
-  :listeners nil}
+  :listeners nil,
+  :visibility nil}
  {:draw/op :rect,
   :x 4,
   :y 4,
@@ -51,11 +52,12 @@
   :x 4,
   :tag :button,
   :pointer-events nil,
-  :listeners (:click :key-down)}
- {:draw/op :text,
+  :listeners (:click :key-down),
+  :visibility nil}
+ {:text "Run",
+  :font-size 14,
+  :opacity 1.0,
+  :draw/op :text,
   :x 12,
   :y 12,
-  :text "Run",
-  :color "#e6ebf5",
-  :font-size 14,
-  :opacity 1.0}]
+  :color "#e6ebf5"}]
