@@ -250,7 +250,22 @@
    layout, not an edge case) with no listener of its own, painted over
    an in-flow sibling that DOES have one, let a click on the overlay's
    own blank area silently fire the unrelated sibling underneath's
-   handler instead of hitting nothing."
+   handler instead of hitting nothing.
+
+   `pointer-events: none` (previously never consulted here at all,
+   confirmed via direct REPL reproduction before touching source): a
+   real, common idiom for a decorative overlay/spinner/scrim that must
+   be fully transparent to pointer events, letting whatever's painted
+   underneath receive them instead -- the CSS spec's own contract is
+   that such an element is treated as if it doesn't exist for hit-
+   testing purposes. Without this, an element with `pointer-events:
+   none` still `topmost`-blocked the point-in-box scan below exactly
+   like an ordinary opaque box, so a click over it never reached a
+   listener on whatever it visually sits on top of -- the OPPOSITE of
+   `pointer-events: none`'s entire purpose. Fixed by skipping any op
+   whose `:pointer-events` is `\"none\"` in the topmost scan, letting it
+   continue past to whatever real box is underneath, exactly as if the
+   `pointer-events: none` box weren't painted there at all."
   ;; `:handlers` is a real vector of EVERY handler-id registered for the
   ;; matched (node, event-type) pair, not just one -- matching
   ;; :add-event-listener's own multi-listener storage above. Nothing
@@ -265,6 +280,7 @@
                      reverse
                      (some (fn [op]
                              (when (and (= :node (:draw/op op))
+                                        (not= "none" (:pointer-events op))
                                         (<= (:x op) x (+ (:x op) (:w op)))
                                         (<= (:y op) y (+ (:y op) (:h op))))
                                (:id op)))))]

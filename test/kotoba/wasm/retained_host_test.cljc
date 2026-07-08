@@ -219,6 +219,75 @@
         s (retained/with-draw-ops (reduce retained/apply-op (merge retained/base-state {:width 320}) ops))]
     (is (= {:target 1 :handlers [222]} (retained/hit-test s 10 10 :click)))))
 
+;; ---- pointer-events: none (previously never consulted at all by
+;; hit-test) -- a real, common idiom for a decorative overlay/spinner/
+;; scrim that must be fully transparent to pointer events, letting
+;; whatever's painted underneath receive them instead. Confirmed via
+;; direct REPL reproduction before touching source: a pointer-events:
+;; none overlay still fully blocked hit-test's topmost scan exactly
+;; like an ordinary opaque box, the OPPOSITE of the property's purpose. ----
+
+(deftest retained-hit-test-passes-through-a-pointer-events-none-overlay
+  (let [ops (:ops (abi/encode-batch
+                   [[:dom/create-element 1 :div]
+                    [:dom/set-root 1]
+                    [:dom/set-attr 1 :style/width 200]
+                    [:dom/create-element 2 :div]
+                    [:dom/set-attr 2 :style/width 200]
+                    [:dom/set-attr 2 :style/height 100]
+                    [:dom/add-event-listener 2 :click 111]
+                    [:dom/create-element 3 :div]
+                    [:dom/set-attr 3 :style/position "absolute"]
+                    [:dom/set-attr 3 :style/left 0]
+                    [:dom/set-attr 3 :style/top 0]
+                    [:dom/set-attr 3 :style/width 200]
+                    [:dom/set-attr 3 :style/height 100]
+                    [:dom/set-attr 3 :style/pointer-events "none"]
+                    [:dom/append-child 1 2]
+                    [:dom/append-child 1 3]]))
+        s (retained/with-draw-ops (reduce retained/apply-op (merge retained/base-state {:width 320}) ops))]
+    (is (= {:target 2 :handlers [111]} (retained/hit-test s 50 50 :click)))))
+
+(deftest retained-hit-test-without-pointer-events-none-still-blocks-as-before
+  ;; Regression guard: an ORDINARY listener-less overlay (no pointer-events
+  ;; declared at all) must still block, per the already-fixed prior bug
+  ;; this same function's own docstring documents above -- this fix must
+  ;; not accidentally make hit-test transparent to every overlay.
+  (is (nil? (retained/hit-test (overlay-state) 50 50 :click))))
+
+(deftest retained-hit-test-pointer-events-none-makes-the-node-itself-untargetable
+  ;; A pointer-events:none node is untargetable even for its OWN
+  ;; listener -- real CSS semantics: the element is treated as absent
+  ;; from hit-testing entirely, not merely "transparent to others."
+  (let [ops (:ops (abi/encode-batch
+                   [[:dom/create-element 1 :div]
+                    [:dom/set-root 1]
+                    [:dom/set-attr 1 :style/width 200]
+                    [:dom/create-element 2 :div]
+                    [:dom/set-attr 2 :style/width 200]
+                    [:dom/set-attr 2 :style/height 100]
+                    [:dom/set-attr 2 :style/pointer-events "none"]
+                    [:dom/add-event-listener 2 :click 222]
+                    [:dom/append-child 1 2]]))
+        s (retained/with-draw-ops (reduce retained/apply-op (merge retained/base-state {:width 320}) ops))]
+    (is (nil? (retained/hit-test s 50 50 :click)))))
+
+(deftest retained-hit-test-pointer-events-auto-does-not-block
+  ;; Regression guard: only the literal "none" value blocks -- any other
+  ;; declared value (e.g. the explicit default, auto) behaves normally.
+  (let [ops (:ops (abi/encode-batch
+                   [[:dom/create-element 1 :div]
+                    [:dom/set-root 1]
+                    [:dom/set-attr 1 :style/width 200]
+                    [:dom/create-element 2 :div]
+                    [:dom/set-attr 2 :style/width 200]
+                    [:dom/set-attr 2 :style/height 100]
+                    [:dom/add-event-listener 2 :click 333]
+                    [:dom/set-attr 2 :style/pointer-events "auto"]
+                    [:dom/append-child 1 2]]))
+        s (retained/with-draw-ops (reduce retained/apply-op (merge retained/base-state {:width 320}) ops))]
+    (is (= {:target 2 :handlers [333]} (retained/hit-test s 50 50 :click)))))
+
 (deftest retained-host-builds-pointer-and-focused-events
   (let [s (retained/with-draw-ops (state))
         button-node (some #(when (and (= :node (:draw/op %))
