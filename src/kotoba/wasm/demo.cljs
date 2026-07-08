@@ -39,7 +39,21 @@
     [:div {:style {:position "absolute" :top 0 :left 0 :width 120 :height 30
                   :background "#e0a458" :visibility "hidden"}}
      "click me"]]
-   [:span.value2 {:style {:padding 8}} @(rf/subscribe [:count2])]])
+   [:span.value2 {:style {:padding 8}} @(rf/subscribe [:count2])]
+   [:p {:style {:padding 8 :max-width 500}}
+    "flex-wrap justify-content proof: three 140px boxes wrap onto two rows "
+    "within this 300px-wide container (two fit per row, the third wraps). "
+    "Previously flex-wrap:wrap hardcoded flex-start for main-axis packing "
+    "regardless of justify-content, so every row packed flush left no "
+    "matter what. Both rows below use justify-content:center, and must "
+    "each center against their OWN row content width -- row 1 (two boxes, "
+    "288px incl. gap) and row 2 (one box, 140px) get different, "
+    "independently-computed offsets, not flush-left."]
+   [:div {:style {:display "flex" :flex-wrap "wrap" :justify-content "center"
+                  :width 300 :gap 8 :background "#1c2333"}}
+    [:div {:style {:width 140 :height 40 :background "#5fb3d9"}} "A"]
+    [:div {:style {:width 140 :height 40 :background "#5fb3d9"}} "B"]
+    [:div {:style {:width 140 :height 40 :background "#5fb3d9"}} "C"]]])
 
 (defn install-model! []
   (rf/clear!)
