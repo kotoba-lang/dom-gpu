@@ -441,10 +441,14 @@
         button-rect (some #(when (and (= :rect (:draw/op %)) (= :button (:tag %))) %) ops)
         button-node (some #(when (and (= :node (:draw/op %)) (= :button (:tag %))) %) ops)]
     (is (= "#334455" (:color button-rect)))
-    ;; 120 of CONTENT plus the UA box a browser gives a <button> -- 6px
-    ;; padding each side, 2px border each side -- is a 136px border box.
-    ;; kotoba-lang/cssom took both on after measuring them in Chrome: a
-    ;; control does not inherit the page font and carries its own box.
-    (is (= 136 (:w button-node)))
+    ;; A declared `width` on a <button> IS its border box: the UA
+    ;; stylesheet gives a button `box-sizing: border-box`, read straight off
+    ;; getComputedStyle in Brave 2026-08-04 (`<button style="width:200px">`
+    ;; reports 200, not 216 -- and the same reading leaves <input> at 208
+    ;; and <textarea> at 206, which are content-box). This asserted 136 --
+    ;; 120 of content plus the button's own 6px padding and 2px border per
+    ;; side -- which is what content-box sizing would give and what no
+    ;; browser reports. See kotoba-lang/cssom's ua-control-box.
+    (is (= 120 (:w button-node)))
     (is (= "primary large hot wide" (:class button-node)))
     (is (= [:click] (:listeners button-node)))))
