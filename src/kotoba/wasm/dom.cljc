@@ -89,6 +89,24 @@
       (update-in [:nodes parent-id :children] (fnil conj []) child-id)
       (emit [:dom/append-child parent-id child-id])))
 
+(defn append-content-child
+  "Appends into an element's CONTENT fragment rather than its child list.
+
+   This exists for `<template>`, whose parsed contents are not children of
+   the element at all: they live in a separate DocumentFragment. Measured in
+   Brave -- `template.childNodes.length` is 0 for every shape probed
+   (`<template><p>x</p></template>`, a template in a table, a nested
+   template, bare text), while `template.content` holds the parsed tree.
+
+   Kept off `:children` on purpose: every consumer of `tree`/`comment-tree`
+   treats `:children` as `what is rendered here`, and template content is
+   explicitly not rendered. `content-tree` below is how a consumer that
+   wants it asks."
+  [document parent-id child-id]
+  (-> document
+      (update-in [:nodes parent-id :content] (fnil conj []) child-id)
+      (emit [:dom/append-content parent-id child-id])))
+
 (defn insert-before [document parent-id child-id before-id]
   (-> document
       (update-in [:nodes parent-id :children]
@@ -191,6 +209,22 @@
                                                 (:children n)))
                 n)))]
     (some-> (:root document) walk)))
+
+(defn content-tree
+  "The tree inside an element's content fragment (see
+   `append-content-child`), or nil when it has none. Elements are maps and
+   text nodes are bare strings, the same shape `tree` produces."
+  [document node-id]
+  (when-let [ids (seq (get-in document [:nodes node-id :content]))]
+    (letfn [(walk [id]
+              (let [n (node document id)]
+                (case (:node/type n)
+                  :text (:text n)
+                  :comment nil
+                  :element (assoc n :children (into [] (comp (map walk) (remove nil?))
+                                                    (:children n)))
+                  n)))]
+      (into [] (comp (map walk) (remove nil?)) ids))))
 
 (defn comment-tree
   "`tree`, but keeping comment nodes as `{:node/type :comment :text ...}`.

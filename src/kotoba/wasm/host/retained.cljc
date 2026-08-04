@@ -31,6 +31,12 @@
     ;; guest's DOM (a later mutation can reference its id), and skipped by
     ;; node-tree, which is the layout view -- same split as
     ;; kotoba.wasm.dom's `tree` vs `comment-tree`.
+    ;; template content: retained so the host mirrors the guest's DOM, and
+    ;; skipped by node-tree, which is the LAYOUT view -- template content is
+    ;; explicitly not rendered. Same split as :comment.
+    :append-content
+    (update-in state [:nodes (:parent op) :content] (fnil conj []) (:child op))
+
     :create-comment
     (assoc-in state [:nodes (:id op)] {:node/id (:id op)
                                        :node/type :comment
