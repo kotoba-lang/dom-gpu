@@ -250,7 +250,8 @@
 (defn- render! [state]
   (let [{:keys [gl text-ctx gl-canvas text-canvas program buffer width height dpr]} state
         ops (retained/draw-ops state {:measure-text (measure-text-fn text-ctx)
-                                     :font-metrics (font-metrics-fn text-ctx)})
+                                     :font-metrics (font-metrics-fn text-ctx)
+                                     :theme (:theme state)})
         ;; (max height ...), never a bare replacement: a caller-supplied
         ;; :height stays an honored MINIMUM (e.g. "always show at least a
         ;; full viewport of background even for a short/empty page"), the
@@ -348,7 +349,7 @@
 (defn install-pointer-events! [webgl-host canvas pump!]
   (browser-events/install-canvas-events! webgl-host canvas pump!))
 
-(defn create-host! [{:keys [gl-canvas text-canvas width height]}]
+(defn create-host! [{:keys [gl-canvas text-canvas width height theme]}]
   (let [gl (.getContext gl-canvas "webgl" #js {:alpha false :antialias true})
         text-ctx (.getContext text-canvas "2d")
         program (program! gl)
@@ -370,7 +371,12 @@
                           :buffer buffer
                           :width (or width 640)
                           :height (or height 360)
-                          :dpr (or (.-devicePixelRatio js/window) 1)}))
+                          :dpr (or (.-devicePixelRatio js/window) 1)
+                          ;; nil unless the embedder says otherwise, which
+                          ;; leaves cssom.layout's own default theme in
+                          ;; charge exactly as before. A host painting web
+                          ;; pages should pass one (see retained/draw-ops).
+                          :theme theme}))
      :apply-op! apply-webgl-op!
      :present! present-webgl!
      :poll-event! poll-webgl-event!}))

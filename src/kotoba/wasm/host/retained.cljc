@@ -184,12 +184,26 @@
    ;; so the vertical half costs nothing more than the horizontal half
    ;; already did, and leaving it unsupplied would have kept the model
    ;; dormant in the only place that actually paints.
-   (let [{:keys [measure-text font-metrics]} (if (map? text-fns)
-                                               text-fns
-                                               {:measure-text text-fns})
+   (let [{:keys [measure-text font-metrics theme]} (if (map? text-fns)
+                                                     text-fns
+                                                     {:measure-text text-fns})
          tree (when-let [root (:root state)]
                 (node-tree state root))
-         theme (cond-> {}
+         ;; `:theme` is the host's own theme -- colours, font size, default
+         ;; padding -- merged UNDER the text hooks so a host can never
+         ;; accidentally drop them by supplying a theme.
+         ;;
+         ;; It exists because cssom.layout/default-theme is a DARK
+         ;; application-chrome theme (`#e6ebf5` on `#121724`), inherited
+         ;; from wasm-ui where this engine painted app UI. A host that
+         ;; paints WEB PAGES needs to say so: a page that sets its own
+         ;; light background -- most of the web -- otherwise gets near-white
+         ;; text on it. Measured in kotoba-lang/browser: its visual smoke
+         ;; page painted an <h1> in #e6ebf5 on the page's own #ffffff, and
+         ;; had done for as long as the smoke existed, because this
+         ;; function had no way to be told otherwise and the browser's own
+         ;; page theme could not reach the only code that paints.
+         theme (cond-> (or theme {})
                  measure-text (assoc :measure-text measure-text)
                  font-metrics (assoc :font-metrics font-metrics))]
      (layout/draw-ops tree (cond-> {:width (:width state)}

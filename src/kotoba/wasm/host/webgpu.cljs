@@ -290,7 +290,8 @@
 
 (defn- render! [state]
   (let [ops (retained/draw-ops state {:measure-text (measure-text-fn (:text-ctx state))
-                                     :font-metrics (font-metrics-fn (:text-ctx state))})
+                                      :font-metrics (font-metrics-fn (:text-ctx state))
+                                      :theme (:theme state)})
         ;; (max ...), never a bare replacement: a caller-supplied :height
         ;; stays an honored MINIMUM, the content's own real extent only
         ;; ever grows the canvas, never shrinks it below that floor --
@@ -331,7 +332,7 @@
 
 (defn create-host!
   "Returns a Promise resolving to a function-map DomHost."
-  [{:keys [gpu-canvas text-canvas width height]}]
+  [{:keys [gpu-canvas text-canvas width height theme]}]
   (if-not (.-gpu js/navigator)
     (js/Promise.reject (js/Error. "WebGPU is not available in this browser"))
     (-> (.requestAdapter (.-gpu js/navigator))
@@ -397,7 +398,14 @@
                                    :text-ctx text-ctx
                                    :width (or width 640)
                                    :height (or height 360)
-                                   :dpr (or (.-devicePixelRatio js/window) 1)}))
+                                   :dpr (or (.-devicePixelRatio js/window) 1)
+                                   ;; nil unless the embedder says
+                                   ;; otherwise, leaving cssom.layout's own
+                                   ;; default theme in charge exactly as
+                                   ;; before. A host painting web pages
+                                   ;; should pass one (see
+                                   ;; retained/draw-ops).
+                                   :theme theme}))
               :apply-op! apply-webgpu-op!
               :present! present-webgpu!
               :poll-event! poll-webgpu-event!}))))))
