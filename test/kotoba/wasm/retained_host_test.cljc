@@ -548,3 +548,39 @@
     (is (= {:handler 2} b))
     (is (nil? c))
     (is (empty? (:events s)))))
+
+(deftest a-host-supplied-theme-reaches-the-paint
+  ;; cssom.layout/default-theme is a DARK application-chrome theme
+  ;; (`#e6ebf5` on `#121724`), inherited from wasm-ui where that engine
+  ;; painted app UI. `draw-ops` had no way to be told anything else, so a
+  ;; host that paints WEB PAGES could not say so, and a page setting its
+  ;; own light background got near-white text on it. That is not
+  ;; hypothetical: kotoba-lang/browser's visual smoke page painted its
+  ;; <h1> in #e6ebf5 on the page's own #ffffff for as long as the smoke
+  ;; existed.
+  ;;
+  ;; Both halves are asserted, because only the pair shows the theme is
+  ;; being CONSULTED rather than defaulted: with no theme the text is the
+  ;; dark-theme foreground, with one it is what the host asked for.
+  (let [s (reduce retained/apply-op (state) ops)
+        text-of (fn [opts]
+                  (->> (retained/draw-ops s opts)
+                       (some #(when (= :text (:draw/op %)) %))
+                       :color))]
+    (is (= "#e6ebf5" (text-of nil))
+        "unchanged default: cssom.layout's own dark app-chrome theme")
+    (is (= "#000000" (text-of {:theme {:fg "#000000" :bg "#ffffff"}}))
+        "a host that says it is painting a page gets what it asked for")))
+
+(deftest a-host-theme-does-not-displace-the-font-hooks
+  ;; The theme is merged UNDER :measure-text/:font-metrics, so supplying
+  ;; one can never silently disable real text measurement -- which would
+  ;; regress word wrapping everywhere while looking like a colour change.
+  (let [s (reduce retained/apply-op (state) ops)
+        measured (atom 0)
+        ops-out (retained/draw-ops s {:theme {:fg "#000000"}
+                                      :measure-text (fn [text _ _ _ _]
+                                                      (swap! measured inc)
+                                                      (* 10 (count text)))})]
+    (is (pos? @measured) "the host's measure-text was actually called")
+    (is (some #(= :text (:draw/op %)) ops-out))))
