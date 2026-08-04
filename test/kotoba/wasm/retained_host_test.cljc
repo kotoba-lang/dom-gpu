@@ -584,3 +584,30 @@
                                                       (* 10 (count text)))})]
     (is (pos? @measured) "the host's measure-text was actually called")
     (is (some #(= :text (:draw/op %)) ops-out))))
+
+(deftest comment-nodes-are-retained-but-not-laid-out
+  ;; A comment has no box, no text and no effect on layout -- but it is a
+  ;; real DOM node with a real id that a later mutation can reference, so
+  ;; the retained tree keeps it and the LAYOUT view drops it. Same split as
+  ;; kotoba.wasm.dom's `tree` vs `comment-tree`.
+  ;;
+  ;; This mattered because there was no comment node type anywhere in this
+  ;; stack until 2026-08-04, which is why htmldom dropped every comment --
+  ;; and dropping one does not merely lose the comment, it MERGES the text
+  ;; on either side of it into a single node where a browser keeps two.
+  (let [ops (:ops (abi/encode-batch
+                   [[:dom/create-element 1 :main]
+                    [:dom/set-root 1]
+                    [:dom/create-text 2 "a"]
+                    [:dom/append-child 1 2]
+                    [:dom/create-comment 3 " note "]
+                    [:dom/append-child 1 3]
+                    [:dom/create-text 4 "b"]
+                    [:dom/append-child 1 4]]))
+        s (reduce retained/apply-op retained/base-state ops)]
+    (is (= :comment (get-in s [:nodes 3 :node/type])) "retained in the node map")
+    (is (= " note " (get-in s [:nodes 3 :text])) "with its text intact")
+    (is (= ["a" "b"] (:children (retained/node-tree s 1)))
+        "the layout view drops the comment and keeps the two text nodes SEPARATE")
+    (is (some #(= :text (:draw/op %)) (retained/draw-ops s))
+        "and the surrounding text still paints")))
