@@ -89,6 +89,40 @@
        (when-let [fs (:font-style op)] (when (not= "normal" fs) (str fs " ")))
        (:font-size op 14) "px " (or (:font-family op) "ui-sans-serif, system-ui, sans-serif")))
 
+(defn- font-metrics-fn
+  "Builds a (fn [font-size font-weight font-style font-family]
+   {:ascent px :descent px}) backed by `ctx`'s real
+   `CanvasRenderingContext2D.measureText`, whose TextMetrics carries
+   `fontBoundingBoxAscent`/`fontBoundingBoxDescent` -- the font's own
+   vertical metrics, which is what a CSS line box is really built from.
+
+   cssom.layout takes these through its `:font-metrics` theme hook and
+   falls back to a documented 1.2em approximation when no host supplies
+   them. Measured against a real browser, that approximation is wrong by
+   a couple of pixels in every direction at once: 14px monospace is
+   ascent 12 / descent 3 (a 15px content area, not 16.8), and its bold
+   face is 14 / 4 (18). Since this host already sets `.font` and calls
+   `measureText` for word-wrap WIDTHS at this same point, the vertical
+   half costs one more property read -- and without it the engine's line
+   boxes stay approximate in the one place that actually paints them.
+
+   Falls back to the same approximation cssom.layout uses if a runtime
+   does not expose the fontBoundingBox* fields (they are comparatively
+   recent, and this host must not crash on an older one)."
+  [ctx]
+  (fn [font-size font-weight font-style font-family]
+    (set! (.-font ctx) (text-font-string {:font-size font-size
+                                          :font-weight font-weight
+                                          :font-style font-style
+                                          :font-family font-family}))
+    (let [m (.measureText ctx "Hxg")
+          a (.-fontBoundingBoxAscent m)
+          d (.-fontBoundingBoxDescent m)
+          fs (or font-size 14)]
+      (if (and (number? a) (number? d))
+        {:ascent a :descent d}
+        {:ascent fs :descent (* 0.2 fs)}))))
+
 (defn- measure-text-fn
   "Builds a (fn [text font-size font-weight font-style font-family]
    width-in-px) backed by `ctx`'s real
@@ -215,7 +249,8 @@
 
 (defn- render! [state]
   (let [{:keys [gl text-ctx gl-canvas text-canvas program buffer width height dpr]} state
-        ops (retained/draw-ops state (measure-text-fn text-ctx))
+        ops (retained/draw-ops state {:measure-text (measure-text-fn text-ctx)
+                                     :font-metrics (font-metrics-fn text-ctx)})
         ;; (max height ...), never a bare replacement: a caller-supplied
         ;; :height stays an honored MINIMUM (e.g. "always show at least a
         ;; full viewport of background even for a short/empty page"), the

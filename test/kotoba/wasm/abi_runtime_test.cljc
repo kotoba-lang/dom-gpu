@@ -441,6 +441,10 @@
         button-rect (some #(when (and (= :rect (:draw/op %)) (= :button (:tag %))) %) ops)
         button-node (some #(when (and (= :node (:draw/op %)) (= :button (:tag %))) %) ops)]
     (is (= "#334455" (:color button-rect)))
-    (is (= 120 (:w button-node)))
+    ;; 120 of CONTENT plus the UA box a browser gives a <button> -- 6px
+    ;; padding each side, 2px border each side -- is a 136px border box.
+    ;; kotoba-lang/cssom took both on after measuring them in Chrome: a
+    ;; control does not inherit the page font and carries its own box.
+    (is (= 136 (:w button-node)))
     (is (= "primary large hot wide" (:class button-node)))
     (is (= [:click] (:listeners button-node)))))

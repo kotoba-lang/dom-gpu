@@ -168,16 +168,37 @@
    without a real measurement function available) leaves cssom.layout's
    default char-w-approximation wrap behavior completely unaffected."
   ([state] (draw-ops state nil))
-  ([state measure-text]
-   (let [tree (when-let [root (:root state)]
-                (node-tree state root))]
+  ([state text-fns]
+   ;; `text-fns` is either the legacy bare measure-text FN, or a map of
+   ;; the host's text capabilities:
+   ;;
+   ;;   {:measure-text  (fn [text font-size weight style family] px)
+   ;;    :font-metrics  (fn [font-size weight style family]
+   ;;                     {:ascent px :descent px})}
+   ;;
+   ;; cssom.layout gained `:font-metrics` -- a font's real ascent and
+   ;; descent, which is what a line box is genuinely built from -- but
+   ;; until a HOST supplies it the engine falls back to its documented
+   ;; 1.2em approximation. These hosts already hold a real Canvas 2D
+   ;; context at this exact point (it is where measure-text comes from),
+   ;; so the vertical half costs nothing more than the horizontal half
+   ;; already did, and leaving it unsupplied would have kept the model
+   ;; dormant in the only place that actually paints.
+   (let [{:keys [measure-text font-metrics]} (if (map? text-fns)
+                                               text-fns
+                                               {:measure-text text-fns})
+         tree (when-let [root (:root state)]
+                (node-tree state root))
+         theme (cond-> {}
+                 measure-text (assoc :measure-text measure-text)
+                 font-metrics (assoc :font-metrics font-metrics))]
      (layout/draw-ops tree (cond-> {:width (:width state)}
-                             measure-text (assoc :theme {:measure-text measure-text}))))))
+                             (seq theme) (assoc :theme theme))))))
 
 (defn with-draw-ops
   ([state] (with-draw-ops state nil))
-  ([state measure-text]
-   (assoc state :draw-ops (draw-ops state measure-text))))
+  ([state text-fns]
+   (assoc state :draw-ops (draw-ops state text-fns))))
 
 (defn content-height
   "The max Y-extent any draw op in `ops` reaches, for auto-sizing a host's
