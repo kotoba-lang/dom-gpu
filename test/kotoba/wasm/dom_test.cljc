@@ -118,3 +118,38 @@
       (is (= "ab" (dom/text-content doc))))
     (testing "it emits an op, so a host mirrors the same tree"
       (is (some #(= [:dom/create-comment c " note "] %) (:ops doc))))))
+
+(deftest template-content-is-a-separate-fragment
+  ;; A <template>'s parsed contents are not its children: they live in a
+  ;; separate DocumentFragment. Measured in Brave for four shapes (a plain
+  ;; template, one in a table, a nested template, bare text) --
+  ;; `template.childNodes.length` is 0 in every one, while
+  ;; `template.content` holds the tree.
+  ;;
+  ;; Kept off :children deliberately: every consumer of tree/comment-tree
+  ;; reads :children as "what is rendered here", and template content is
+  ;; explicitly not rendered.
+  (let [[root doc] (dom/create-element dom/empty-document :main)
+        doc (dom/set-root doc root)
+        [tpl doc] (dom/create-element doc :template)
+        doc (dom/append-child doc root tpl)
+        [p doc] (dom/create-element doc :p)
+        doc (dom/append-content-child doc tpl p)
+        [t doc] (dom/create-text-node doc "inside")
+        doc (dom/append-child doc p t)
+        [after doc] (dom/create-element doc :p)
+        doc (dom/append-child doc root after)]
+    (testing "the template renders as an empty element"
+      (let [[tpl-node after-node] (:children (dom/tree doc))]
+        (is (= :template (:tag tpl-node)))
+        (is (empty? (:children tpl-node)) "childNodes is 0, as in a browser")
+        (is (= :p (:tag after-node)) "and the following sibling is unaffected")))
+    (testing "the content is reachable, as its own tree"
+      (is (= [{:tag :p :children ["inside"]}]
+             (mapv #(select-keys % [:tag :children]) (dom/content-tree doc tpl)))))
+    (testing "an element with no content fragment has none"
+      (is (nil? (dom/content-tree doc after))))
+    (testing "textContent ignores it, because the nodes are not in the tree"
+      (is (= "" (dom/text-content doc))))
+    (testing "it emits an op, so a host mirrors the same split"
+      (is (some #(= [:dom/append-content tpl p] %) (:ops doc))))))

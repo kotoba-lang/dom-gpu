@@ -23,6 +23,10 @@
       (let [[id text] xs]
         {:op :create-text :id id :text (str text)})
 
+      :dom/append-content
+      (let [[parent child] xs]
+        {:op :append-content :parent parent :child child})
+
       :dom/create-comment
       (let [[id text] xs]
         {:op :create-comment :id id :text (str text)})
