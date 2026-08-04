@@ -40,6 +40,28 @@
                                    :text text})
             (emit [:dom/create-text id text]))]))
 
+(defn create-comment-node
+  "A real DOM comment node.
+
+   This existed nowhere until 2026-08-04, which is why `htmldom` dropped
+   every `<!-- ... -->` on the floor: there was no node type to put one in.
+   Three parser conformance cases fail on exactly that, and they fail in a
+   way worth keeping visible -- a dropped comment silently MERGES the text
+   on either side of it (`a<!--c-->b` becomes one `ab` text node where a
+   browser keeps two), so it is not only a missing node but a corrupted
+   text structure.
+
+   Comments carry no layout: `tree` omits them (see its own docstring), so
+   cssom.layout never sees one and needs no knowledge of them."
+  [document text]
+  (let [[id document] (alloc-id document)
+        text (str text)]
+    [id (-> document
+            (assoc-in [:nodes id] {:node/id id
+                                   :node/type :comment
+                                   :text text})
+            (emit [:dom/create-comment id text]))]))
+
 (defn set-root [document node-id]
   (-> document
       (assoc :root node-id)
@@ -149,11 +171,41 @@
 (defn node [document node-id]
   (get-in document [:nodes node-id]))
 
-(defn tree [document]
+(defn tree
+  "The LAYOUT view of the document: elements as maps, text as bare strings.
+
+   Comment nodes are omitted. They have no box, no text and no effect on
+   layout, and every consumer of this fn (cssom.layout above all) treats a
+   map child as an element and a string child as text -- so admitting a
+   third shape here would push comment-awareness into every layout path to
+   no benefit. `comment-tree` is the DOM view that keeps them."
+  [document]
   (letfn [(walk [id]
             (let [n (node document id)]
               (case (:node/type n)
                 :text (:text n)
+                :comment nil
+                :element (assoc n
+                                :listeners (keys (get-in document [:listeners id]))
+                                :children (into [] (comp (map walk) (remove nil?))
+                                                (:children n)))
+                n)))]
+    (some-> (:root document) walk)))
+
+(defn comment-tree
+  "`tree`, but keeping comment nodes as `{:node/type :comment :text ...}`.
+
+   For consumers that are looking at the DOM rather than laying it out: a
+   parser conformance harness comparing against a real browser's node list,
+   a devtools inspector, a serializer. Kept as a separate fn precisely so
+   that adding comments to the document cannot change what any existing
+   layout caller sees."
+  [document]
+  (letfn [(walk [id]
+            (let [n (node document id)]
+              (case (:node/type n)
+                :text (:text n)
+                :comment (select-keys n [:node/type :text])
                 :element (assoc n
                                 :listeners (keys (get-in document [:listeners id]))
                                 :children (mapv walk (:children n)))
@@ -165,6 +217,9 @@
             (let [n (node document id)]
               (case (:node/type n)
                 :text (:text n)
+                ;; a comment contributes nothing to textContent, exactly as
+                ;; in a real DOM
+                :comment ""
                 :element (str/join "" (map walk (:children n)))
                 "")))]
     (if-let [root (:root document)] (walk root) "")))

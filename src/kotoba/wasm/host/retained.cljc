@@ -27,6 +27,15 @@
                                        :node/type :text
                                        :text (:text op)})
 
+    ;; A comment is retained so the tree stays a faithful mirror of the
+    ;; guest's DOM (a later mutation can reference its id), and skipped by
+    ;; node-tree, which is the layout view -- same split as
+    ;; kotoba.wasm.dom's `tree` vs `comment-tree`.
+    :create-comment
+    (assoc-in state [:nodes (:id op)] {:node/id (:id op)
+                                       :node/type :comment
+                                       :text (:text op)})
+
     :set-root
     (assoc state :root (:id op))
 
@@ -147,9 +156,11 @@
   (let [node (get-in state [:nodes id])]
     (case (:node/type node)
       :text (:text node)
+      :comment nil
       :element (assoc node
                       :listeners (keys (get-in state [:listeners id]))
-                      :children (mapv #(node-tree state %) (:children node)))
+                      :children (into [] (comp (map #(node-tree state %)) (remove nil?))
+                                      (:children node)))
       node)))
 
 (defn draw-ops

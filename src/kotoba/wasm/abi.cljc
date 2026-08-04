@@ -23,6 +23,10 @@
       (let [[id text] xs]
         {:op :create-text :id id :text (str text)})
 
+      :dom/create-comment
+      (let [[id text] xs]
+        {:op :create-comment :id id :text (str text)})
+
       :dom/set-root
       (let [[id] xs]
         {:op :set-root :id id})

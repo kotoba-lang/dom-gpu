@@ -1,5 +1,5 @@
 (ns kotoba.wasm.dom-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.test :refer [deftest is testing]]
             [kotoba.wasm.dom :as dom]))
 
 (defn- dispatch-ops
@@ -92,3 +92,29 @@
 (deftest dispatch-with-no-listeners-registered-at-all-is-a-no-op
   (let [[node document] (fresh-button)]
     (is (empty? (dispatch-ops document node "click" {:type "click"})))))
+
+(deftest comment-nodes-exist-and-stay-out-of-layout
+  ;; There was no comment node type in this namespace at all until
+  ;; 2026-08-04. htmldom therefore had nowhere to put a `<!-- ... -->` and
+  ;; dropped it -- which does not just lose the comment: it merges the text
+  ;; on either side into ONE node where a browser keeps two.
+  (let [[root doc] (dom/create-element dom/empty-document :main)
+        doc (dom/set-root doc root)
+        [t1 doc] (dom/create-text-node doc "a")
+        doc (dom/append-child doc root t1)
+        [c doc] (dom/create-comment-node doc " note ")
+        doc (dom/append-child doc root c)
+        [t2 doc] (dom/create-text-node doc "b")
+        doc (dom/append-child doc root t2)]
+    (testing "it is a real node with its text"
+      (is (= :comment (:node/type (dom/node doc c))))
+      (is (= " note " (:text (dom/node doc c)))))
+    (testing "the layout view omits it and keeps the text nodes separate"
+      (is (= ["a" "b"] (:children (dom/tree doc)))))
+    (testing "the DOM view keeps it in document order"
+      (is (= ["a" {:node/type :comment :text " note "} "b"]
+             (:children (dom/comment-tree doc)))))
+    (testing "textContent ignores it, as in a real DOM"
+      (is (= "ab" (dom/text-content doc))))
+    (testing "it emits an op, so a host mirrors the same tree"
+      (is (some #(= [:dom/create-comment c " note "] %) (:ops doc))))))
