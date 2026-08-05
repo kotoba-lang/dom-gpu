@@ -91,7 +91,7 @@
   :listeners (:click :key-down),
   :visibility nil}
  {:text "Run",
-  :font-size 13,
+  :font-size 13.3333,
   :opacity 1.0,
   :font-family "Arial",
   :draw/op :text,
