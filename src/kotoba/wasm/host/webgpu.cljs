@@ -99,9 +99,109 @@
           a (.-fontBoundingBoxAscent m)
           d (.-fontBoundingBoxDescent m)
           fs (or font-size 14)]
-      (if (and (number? a) (number? d))
-        {:ascent a :descent d}
-        {:ascent fs :descent (* 0.2 fs)}))))
+      ;; `:x-height` -- the INK top of a lowercase `x` -- rides along
+      ;; because it is one more read off an object this already has, and
+      ;; because `vertical-align: middle` centres a box on
+      ;; `baseline - x-height/2` and has nothing else to read it from.
+      ;; Measured in Brave, 14px monospace is 6.34375, and reading the
+      ;; same number back off a real `middle` box agrees to LayoutUnit's
+      ;; own 1/64px. Left OUT of the map when the runtime does not expose
+      ;; `actualBoundingBoxAscent`, which keeps cssom.layout's documented
+      ;; baseline fallback for `middle` rather than inventing an em
+      ;; fraction (measured, it ranges 0.453em to 0.545em across four
+      ;; families, so there is no single one to invent).
+      (let [xh (.-actualBoundingBoxAscent (.measureText ctx "x"))]
+        (cond-> (if (and (number? a) (number? d))
+                  {:ascent a :descent d}
+                  {:ascent fs :descent (* 0.2 fs)})
+          (number? xh) (assoc :x-height xh))))))
+
+;; The families whose summary metrics Blink distrusts, measured in Brave
+;; 151 on 2026-08-05 by reading `<input size=n>` and `<textarea cols=n>`
+;; widths back: a control in one of these is sized from the `0` advance
+;; with no max-advance slack at all, whatever its `x` advance says.
+;;
+;; It is keyed on the NAME, not on anything measurable about the font, and
+;; Arial/Helvetica are the demonstration: identical canvas metrics here to
+;; the last bit, 6%-different control widths. (Skia, Thonburi and Zapfino,
+;; which older copies of Blink's list also name, measured as NOT on it.)
+(def ^:private distrusted-avg-char-width-families
+  #{"American Typewriter" "Arial Hebrew" "Chalkboard" "Cochin" "Courier"
+    "Euphemia UCAS" "Geneva" "Gill Sans" "Helvetica" "Hoefler Text"
+    "Lucida Grande" "Marker Felt" "Monaco" "Osaka" "Times"})
+
+(defn- avg-advance-fn
+  "Builds a (fn [font-size font-weight font-style font-family] px) for
+   cssom.layout's `:avg-advance` hook -- the font's AVERAGE character
+   advance, which is what a form control's intrinsic width is `size` (or
+   `cols`) of and what no string measurement produces.
+
+   Measured in Brave 151 on 2026-08-05 over 10 families x 11 sizes x 14
+   column counts, exact on all 1,540 `<textarea cols=n>` widths:
+
+     avg = max(w, round(w))   where w is the `x` glyph's advance
+
+   -- the `x` advance, rounded UP to a whole pixel when its fraction is
+   over a half (half-UP: Zapfino at 20px has an `x` advance of exactly
+   12.5 and its controls are sized from 13) and left alone when it is
+   under. Not the mean of an advance table, which is 5.4% out at 26.6666px
+   and 40px; not the `0` advance, which is 6% too wide in the UA control
+   face; not a fixed em fraction, which ranges 0.5em to 0.5918em across
+   the families measured.
+
+   Supplying it here matters rather than merely helping: cssom.layout's
+   fallback when no host answers is the `0` advance, and its UA control
+   font is the browser's real 13.3333px, so a host that leaves this
+   unsupplied charges 7.4135 per character where the browser charges 7 --
+   an <input size=20> 4px too wide. The engine's own comment for this is
+   in avg-advance; this is the production end of it.
+
+   Rounds at the ASKED size, never at a reference one, which is the whole
+   content of the law."
+  [ctx]
+  (fn [font-size font-weight font-style font-family]
+    (set! (.-font ctx) (text-font-string {:font-size font-size
+                                          :font-weight font-weight
+                                          :font-style font-style
+                                          :font-family font-family}))
+    (if (contains? distrusted-avg-char-width-families font-family)
+      (.-width (.measureText ctx "0"))
+      (let [w (.-width (.measureText ctx "x"))]
+        (max w (js/Math.round w))))))
+
+(defn- max-advance-fn
+  "Builds a (fn [font-size font-weight font-style font-family] px) for
+   cssom.layout's `:max-advance` hook -- the font's MAXIMUM character
+   width, which an `<input size=n>` adds one glyph's worth of on top of
+   its `n` average characters (`ceil(avg * n + (max - avg))`, which is why
+   an `<input size=1>` is 12px of content in a face whose average
+   character is 7).
+
+   Measured the same way and on the same day over the 1,540 matching
+   `<input size=n>` widths: this quantity is the font's ASCENT, exactly.
+   Not a max over any advance table -- in Arial the widest ASCII glyph is
+   1.015em where this is 0.9em -- and not a per-family em ratio, since no
+   single ratio reproduces it across sizes. Blink says so out loud:
+   `SimpleFontData::PlatformInit` falls back to `-fAscent` when the
+   platform carries no max-char-width, and macOS is such a platform.
+
+   So it is the same `fontBoundingBoxAscent` font-metrics-fn already
+   reads, rounded to a whole pixel -- and 0 for a family whose metrics
+   Blink distrusts, which measured as no slack at all.
+
+   Falls back to `nil` when the runtime does not expose the field, which
+   leaves cssom.layout on its own documented fallback (avg, i.e. no
+   slack) rather than on an invented number."
+  [ctx]
+  (fn [font-size font-weight font-style font-family]
+    (if (contains? distrusted-avg-char-width-families font-family)
+      0
+      (do (set! (.-font ctx) (text-font-string {:font-size font-size
+                                                :font-weight font-weight
+                                                :font-style font-style
+                                                :font-family font-family}))
+          (let [a (.-fontBoundingBoxAscent (.measureText ctx "Hxg"))]
+            (when (number? a) (js/Math.round a)))))))
 
 (defn- measure-text-fn
   "Builds a (fn [text font-size font-weight font-style font-family]
@@ -291,6 +391,8 @@
 (defn- render! [state]
   (let [ops (retained/draw-ops state {:measure-text (measure-text-fn (:text-ctx state))
                                       :font-metrics (font-metrics-fn (:text-ctx state))
+                                      :avg-advance (avg-advance-fn (:text-ctx state))
+                                      :max-advance (max-advance-fn (:text-ctx state))
                                       :theme (:theme state)})
         ;; (max ...), never a bare replacement: a caller-supplied :height
         ;; stays an honored MINIMUM, the content's own real extent only

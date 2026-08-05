@@ -191,7 +191,9 @@
    ;;
    ;;   {:measure-text  (fn [text font-size weight style family] px)
    ;;    :font-metrics  (fn [font-size weight style family]
-   ;;                     {:ascent px :descent px})}
+   ;;                     {:ascent px :descent px :x-height px})
+   ;;    :avg-advance   (fn [font-size weight style family] px)
+   ;;    :max-advance   (fn [font-size weight style family] px)}
    ;;
    ;; cssom.layout gained `:font-metrics` -- a font's real ascent and
    ;; descent, which is what a line box is genuinely built from -- but
@@ -201,9 +203,18 @@
    ;; so the vertical half costs nothing more than the horizontal half
    ;; already did, and leaving it unsupplied would have kept the model
    ;; dormant in the only place that actually paints.
-   (let [{:keys [measure-text font-metrics theme]} (if (map? text-fns)
-                                                     text-fns
-                                                     {:measure-text text-fns})
+   ;;
+   ;; `:avg-advance`/`:max-advance` joined them on 2026-08-05 and are the
+   ;; same story one layer down: a FORM CONTROL's intrinsic width is
+   ;; `size` (or `cols`) of the font's AVERAGE advance plus, for an
+   ;; `<input>`, one glyph's worth of slack -- neither of which any
+   ;; string measurement produces. cssom.layout's fallback when no host
+   ;; answers is the `0` glyph, which is 6% too wide in the UA control
+   ;; face, so a host that holds a canvas and does not supply these is
+   ;; choosing a measurably worse answer. See avg-advance-fn /
+   ;; max-advance-fn in the WebGL and WebGPU hosts for the measured laws.
+   (let [{:keys [measure-text font-metrics avg-advance max-advance theme]}
+         (if (map? text-fns) text-fns {:measure-text text-fns})
          tree (when-let [root (:root state)]
                 (node-tree state root))
          ;; `:theme` is the host's own theme -- colours, font size, default
@@ -222,7 +233,9 @@
          ;; page theme could not reach the only code that paints.
          theme (cond-> (or theme {})
                  measure-text (assoc :measure-text measure-text)
-                 font-metrics (assoc :font-metrics font-metrics))]
+                 font-metrics (assoc :font-metrics font-metrics)
+                 avg-advance (assoc :avg-advance avg-advance)
+                 max-advance (assoc :max-advance max-advance))]
      (layout/draw-ops tree (cond-> {:width (:width state)}
                              (seq theme) (assoc :theme theme))))))
 
