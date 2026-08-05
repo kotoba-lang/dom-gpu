@@ -359,6 +359,58 @@
         s (retained/with-draw-ops (reduce retained/apply-op (merge retained/base-state {:width 320}) ops))]
     (is (= {:target 2 :handlers [666]} (retained/hit-test s 50 50 :click)))))
 
+;; ---- `:hit`: an element's box is not always where it is clicked ----
+;;
+;; cssom.layout attaches a `:hit` rect list to a `:node` op wherever a
+;; browser's reported box and its hit region are different rectangles --
+;; a wrapped inline box (hit inside its fragments, not the union its box
+;; reports), a block whose lines overflow it (hit outside the box, per
+;; line), and a table row or row group (never hit at all, background or
+;; no background). It is the layout engine's answer, not this host's, and
+;; this host reads it rather than re-deriving it.
+
+(deftest retained-hit-test-reads-a-nodes-hit-region-instead-of-its-box
+  ;; The wrapped-inline shape, reduced to the two rects that matter: a box
+  ;; spanning 0..100 x 0..40 whose real fragments are the top-right and
+  ;; bottom-left corners of it. The middle of the union belongs to
+  ;; whatever is underneath, exactly as `elementFromPoint` answers there.
+  (let [state {:width 320
+               :listeners {2 {:click [77]} 1 {:click [11]}}
+               :parents {2 1}
+               :draw-ops [{:draw/op :node :id 1 :x 0 :y 0 :w 100 :h 40}
+                          {:draw/op :node :id 2 :x 0 :y 0 :w 100 :h 40
+                           :hit [{:x 60 :y 0 :w 40 :h 20}
+                                 {:x 0 :y 20 :w 40 :h 20}]}]}]
+    (is (= {:target 2 :handlers [77]} (retained/hit-test state 70 10 :click))
+        "inside the first fragment")
+    (is (= {:target 2 :handlers [77]} (retained/hit-test state 10 30 :click))
+        "inside the second")
+    (is (= {:target 1 :handlers [11]} (retained/hit-test state 10 10 :click))
+        "inside the union and inside NEITHER fragment: the element
+         underneath, not the one whose box covers the point")))
+
+(deftest retained-hit-test-skips-a-node-that-is-not-a-hit-test-candidate
+  ;; `:hit []` -- what a `<tr>`/`<tbody>` carries. Its box is real and the
+  ;; accessibility projection wants it; it is never the answer to a click,
+  ;; and a click on it belongs to the table underneath.
+  (let [state {:width 320
+               :listeners {2 {:click [77]} 1 {:click [11]}}
+               :parents {2 1}
+               :draw-ops [{:draw/op :node :id 1 :x 0 :y 0 :w 100 :h 40}
+                          {:draw/op :node :id 2 :x 0 :y 0 :w 100 :h 40 :hit []}]}]
+    (is (= {:target 1 :handlers [11]} (retained/hit-test state 50 20 :click))
+        "the row does not swallow the click its box covers")))
+
+(deftest retained-hit-test-without-a-hit-region-still-uses-the-box
+  ;; Regression guard: every op that carried no `:hit` before carries none
+  ;; now, and behaves exactly as it did.
+  (let [state {:width 320
+               :listeners {2 {:click [77]}}
+               :parents {2 1}
+               :draw-ops [{:draw/op :node :id 1 :x 0 :y 0 :w 100 :h 40}
+                          {:draw/op :node :id 2 :x 0 :y 0 :w 100 :h 40}]}]
+    (is (= {:target 2 :handlers [77]} (retained/hit-test state 10 10 :click)))))
+
 (deftest retained-host-builds-pointer-and-focused-events
   (let [s (retained/with-draw-ops (state))
         button-node (some #(when (and (= :node (:draw/op %))

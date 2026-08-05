@@ -339,6 +339,18 @@
   ;; listener-event below, which is where multi-handler DISPATCH
   ;; actually matters), but this keeps hit-test's own contract honest
   ;; about what's really registered, not silently truncated to one.
+  ;;
+  ;; `:hit` is cssom.layout's own answer to "where is this element
+  ;; clicked", and it is not always its box (see that namespace's ns
+  ;; docstring for the three measurements). When a `:node` op carries one,
+  ;; it is a vector of rects that REPLACES the box here, `[]` meaning the
+  ;; element is not a hit-test candidate at all. Without reading it, a
+  ;; click on the ragged edge of a WRAPPED inline box -- inside the union
+  ;; its box reports, inside neither line it actually occupies -- fired
+  ;; that element's handler where a browser fires the containing block's;
+  ;; a click on a `<p>`'s OVERFLOWING text hit nothing; and a click in a
+  ;; table's border-spacing gap hit the `<tr>`, which no browser ever
+  ;; reports.
   [state x y event-name]
   (let [event-name (normalize-event-name event-name)
         topmost (->> (:draw-ops state)
@@ -352,8 +364,12 @@
                                         ;; events:none -- previously never
                                         ;; consulted here either.
                                         (not (contains? #{"hidden" "collapse"} (:visibility op)))
-                                        (<= (:x op) x (+ (:x op) (:w op)))
-                                        (<= (:y op) y (+ (:y op) (:h op))))
+                                        (if-let [hit (:hit op)]
+                                          (some (fn [r] (and (<= (:x r) x (+ (:x r) (:w r)))
+                                                             (<= (:y r) y (+ (:y r) (:h r)))))
+                                                hit)
+                                          (and (<= (:x op) x (+ (:x op) (:w op)))
+                                               (<= (:y op) y (+ (:y op) (:h op))))))
                                (:id op)))))]
     (when topmost
       (let [parents (parent-index state)]
