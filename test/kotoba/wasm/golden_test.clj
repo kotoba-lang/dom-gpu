@@ -31,6 +31,17 @@
          (abi/encode-batch source-ops))))
 
 (deftest retained-draw-ops-golden-remains-stable
+  ;; The `<button>`'s `:font-size` in this golden moved 13 -> 13.3333 on
+  ;; 2026-08-05, and it is the only value in it that did. It is not a
+  ;; rendering change here: cssom.layout's UA control font was always the
+  ;; browser's 13.3333px Arial and was TRUNCATED to 13 on purpose, because
+  ;; that truncation cancelled an opposite error in the intrinsic WIDTH
+  ;; model (see its own ua-control-font). Both halves moved together once
+  ;; the missing metric -- the font's average character advance -- turned
+  ;; out to be measurable; the width half arrives here through the new
+  ;; `:avg-advance`/`:max-advance` hooks the WebGL and WebGPU hosts now
+  ;; supply. This golden is built with no host hooks at all, so it sees
+  ;; only the size.
   (is (= (read-resource "kotoba/wasm/golden/retained_draw_ops.edn")
          (:draw-ops (retained/with-draw-ops (retained-state))))))
 
