@@ -42,6 +42,20 @@
   ;; `:avg-advance`/`:max-advance` hooks the WebGL and WebGPU hosts now
   ;; supply. This golden is built with no host hooks at all, so it sees
   ;; only the size.
+  ;;
+  ;; 2026-08-06: four KEYS appeared and no number moved -- `:break-inside`,
+  ;; `:orphans` and `:frag/insets` on each `:node` op, `:line/h` on the
+  ;; `:text` op. cssom.layout grew block fragmentation across a
+  ;; multi-column boundary, and all four are what its break-opportunity
+  ;; model reads: where a break is forbidden (`break-inside: avoid`,
+  ;; `orphans`), where a box's decoration bands end (the free band a cut
+  ;; may land in is the CONTENT box, not the border box), and how tall a
+  ;; line box is (a text op's own `:y` is the line top on one code path
+  ;; and a baseline-derived glyph top on another, and only the emitter
+  ;; knows which). Every x/y/w/h in the file is unchanged, which is why it
+  ;; was regenerated rather than the comparison relaxed: a golden that
+  ;; pins whole op MAPS is how an additive change to the op vocabulary
+  ;; becomes visible to this repo at all, and it worked.
   (is (= (read-resource "kotoba/wasm/golden/retained_draw_ops.edn")
          (:draw-ops (retained/with-draw-ops (retained-state))))))
 
