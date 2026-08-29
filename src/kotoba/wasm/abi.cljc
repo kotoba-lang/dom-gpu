@@ -115,6 +115,20 @@
     (case op
       :create-element (when-not (and (int? id) (seq tag)) (throw (ex-info "Invalid create-element op" {:op op :id id :tag tag})))
       :create-text (when-not (and (int? id) (string? text)) (throw (ex-info "Invalid create-text op" {:op op :id id :text text})))
+      ;; :append-content and :create-comment were BOTH emitted by op->record
+      ;; above and BOTH applied by kotoba.wasm.host.retained/apply-op, and
+      ;; neither had a case here -- so every batch carrying one fell through
+      ;; to the "Invalid ABI op kind" default and crashed the WHOLE commit,
+      ;; including every legitimate mutation queued alongside it. Measured
+      ;; 2026-08-29: this is exactly what made `browser`'s two real
+      ;; browser.demo smoke tests fail with `{:op :append-content}` -- CSS
+      ;; generated content (::before/::after, which is what
+      ;; kotoba.wasm.dom/append-content-child exists for) could never reach
+      ;; a real host at all. `abi-op-kinds-agree-test` now asserts the three
+      ;; sets agree, so a fourth drift of this shape fails instead of
+      ;; waiting for a page to hit it.
+      :append-content (when-not (and (int? parent) (int? child)) (throw (ex-info "Invalid append-content op" {:op op :parent parent :child child})))
+      :create-comment (when-not (and (int? id) (string? text)) (throw (ex-info "Invalid create-comment op" {:op op :id id :text text})))
       :set-root (when-not (int? id) (throw (ex-info "Invalid set-root op" {:op op :id id})))
       :set-attr (when-not (and (int? id) (seq name) (string? value)) (throw (ex-info "Invalid set-attr op" {:op op :id id :name name :value value})))
       ;; Previously entirely unhandled here (and in op->record above): a
