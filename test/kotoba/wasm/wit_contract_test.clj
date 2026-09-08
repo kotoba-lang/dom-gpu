@@ -1,7 +1,7 @@
 (ns kotoba.wasm.wit-contract-test
   (:require [clojure.java.io :as io]
             [clojure.set :as set]
-            [clojure.string :as str]
+            [kotoba.lang.text :as str]
             [clojure.test :refer [deftest is testing]]
             [kotoba.wasm.abi :as abi]))
 

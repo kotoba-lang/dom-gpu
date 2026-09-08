@@ -4,7 +4,7 @@
    this script verifies that the expected static entry points and generated JS
    modules exist after shadow-cljs compilation."
   (:require [clojure.java.io :as io]
-            [clojure.string :as str]))
+            [kotoba.lang.text :as str]))
 
 (def artifacts
   [{:path "public/kotoba-wasm-ui.html"
