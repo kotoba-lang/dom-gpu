@@ -3,7 +3,7 @@
    It accepts ordinary Hiccup/Reagent-style vectors and produces a virtual DOM
    document that can be committed to a WASM host."
   (:refer-clojure :exclude [atom])
-  (:require [kotoba.wasm.dom :as dom]))
+  (:require [kotoba.lang.text] [kotoba.wasm.dom :as dom]))
 
 (defn atom
   ([] (clojure.core/atom nil))
@@ -15,7 +15,7 @@
 (defn- normalize-class [v]
   (cond
     (keyword? v) (name v)
-    (sequential? v) (->> v (remove nil?) (map normalize-class) (clojure.string/join " "))
+    (sequential? v) (->> v (remove nil?) (map normalize-class) (kotoba.lang.text/join " "))
     :else v))
 
 (defn- parse-tag [tag]
@@ -26,7 +26,7 @@
     [(keyword tag-name)
      (cond-> {}
        id (assoc :id id)
-       (seq classes) (assoc :class (clojure.string/join " " classes)))]))
+       (seq classes) (assoc :class (kotoba.lang.text/join " " classes)))]))
 
 (defn- merge-class [a b]
   (normalize-class (remove nil? [a b])))
@@ -42,7 +42,7 @@
      (cond
        (= k :style) (dom/set-style document node-id v)
        (= k :class) (dom/set-attribute document node-id :class (normalize-class v))
-       (and (keyword? k) (clojure.string/starts-with? (name k) "on-"))
+       (and (keyword? k) (kotoba.lang.text/starts-with? (name k) "on-"))
        (let [handler-id (register-handler! v)]
          (dom/add-event-listener document node-id (subs (name k) 3) handler-id))
        :else (dom/set-attribute document node-id k v)))

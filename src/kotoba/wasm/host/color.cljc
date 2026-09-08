@@ -47,7 +47,7 @@
    component of its own) -- the returned 4th element is
    `(* alpha own-alpha)`, exactly as the old 2-arity `hex->rgba` already
    multiplied (trivially, since its own-alpha was always implicitly 1)."
-  (:require [clojure.string :as str]))
+  (:require [kotoba.lang.text :as str]))
 
 ;; 148 CSS Color Module named-color keywords -- the 16 basic CSS2.1
 ;; keywords (black, silver, gray, white, maroon, red, purple, fuchsia,
@@ -391,7 +391,7 @@
   (when (string? color)
     (let [trimmed (str/trim color)]
       (when (seq trimmed)
-        (let [ls (str/lower-case trimmed)]
+        (let [ls (str/lower trimmed)]
           (cond
             (= ls "transparent") [0 0 0 0]
             (str/starts-with? ls "#") (parse-hex (subs ls 1))

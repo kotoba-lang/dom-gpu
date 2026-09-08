@@ -2,7 +2,7 @@
   "DOM-like substrate for kotoba WASM.
    This does not call browser DOM APIs. It maintains a document model and emits
    host-friendly ops that a WebGL/WebGPU/native host can interpret."
-  (:require [clojure.string :as str]))
+  (:require [kotoba.lang.text :as str]))
 
 (def empty-document
   {:next-id 1

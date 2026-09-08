@@ -1,6 +1,6 @@
 (ns kotoba.wasm.abi
   "Canonical ABI encoding for kotoba.wasm.dom ops."
-  (:require [clojure.string :as str]))
+  (:require [kotoba.lang.text :as str]))
 
 (def version 1)
 
