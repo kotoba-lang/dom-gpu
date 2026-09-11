@@ -29,7 +29,7 @@
             [kotoba.wasm.abi :as abi]
             [kotoba.wasm.host.retained :as retained]))
 
-(def abi-source-path "src/kotoba/wasm/abi.cljc")
+(def abi-source-path "src/kotoba/wasm/abi.cljk")
 
 (def sample-ops
   "One minimal, VALID raw op per kind `op->record` accepts. Keys must equal
