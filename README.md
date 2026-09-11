@@ -42,8 +42,8 @@ reference renderers:
 - `wasm-webgpu`: WebGPU retained-tree renderer with text canvas overlay
 
 The substrate keeps Reagent/re-frame-shaped CLJS code portable by providing
-small compatibility namespaces in `src/reagent/core.cljc` and
-`src/re_frame/core.cljc`. UI is lowered into a kotoba virtual document, encoded
+small compatibility namespaces in `src/reagent/core.cljk` and
+`src/re_frame/core.cljk`. UI is lowered into a kotoba virtual document, encoded
 as the `kotoba:dom` host ABI, retained by renderer hosts, then projected to draw
 ops for WebGL/WebGPU.
 
