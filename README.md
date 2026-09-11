@@ -68,12 +68,12 @@ kotoba.wasm.demo_webgpu.debug_snapshot()
 Coverage entry points:
 
 ```sh
-clojure -M:test -n kotoba.wasm.compat-api-test
-clojure -M:test -n kotoba.wasm.dom-compat-test
-clojure -M:test -n kotoba.wasm.abi-runtime-test
-clojure -M:test -n kotoba.wasm.debug-test
-clojure -M:test -n kotoba.wasm.retained-host-test
-clojure -M:test -n kotoba.wasm.wit-contract-test
-clojure -M:test -n kotoba.wasm.golden-test
-clojure -M:test
+kbb -M:test -n kotoba.wasm.compat-api-test
+kbb -M:test -n kotoba.wasm.dom-compat-test
+kbb -M:test -n kotoba.wasm.abi-runtime-test
+kbb -M:test -n kotoba.wasm.debug-test
+kbb -M:test -n kotoba.wasm.retained-host-test
+kbb -M:test -n kotoba.wasm.wit-contract-test
+kbb -M:test -n kotoba.wasm.golden-test
+kbb -M:test
 ```
