@@ -1,7 +1,7 @@
 (ns kotoba.wasm.golden-test
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
-            [clojure.test :refer [deftest is]]
+            [kotoba.test :refer [deftest is]]
             [kotoba.wasm.abi :as abi]
             [kotoba.wasm.host.retained :as retained]))
 

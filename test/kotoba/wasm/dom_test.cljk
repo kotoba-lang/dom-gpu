@@ -1,5 +1,5 @@
 (ns kotoba.wasm.dom-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [kotoba.wasm.dom :as dom]))
 
 (defn- dispatch-ops

@@ -1,5 +1,5 @@
 (ns kotoba.wasm.debug-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [kotoba.test :refer [deftest is]]
             [kotoba.wasm.debug :as debug]
             [kotoba.wasm.host :as host]
             [kotoba.wasm.runtime :as runtime]

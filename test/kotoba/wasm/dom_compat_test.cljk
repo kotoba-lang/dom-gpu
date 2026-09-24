@@ -1,5 +1,5 @@
 (ns kotoba.wasm.dom-compat-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [kotoba.wasm.dom :as dom]
             [kotoba.wasm.host :as host]
             [cssom.layout :as layout]

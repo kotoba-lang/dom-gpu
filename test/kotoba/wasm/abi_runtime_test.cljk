@@ -1,5 +1,5 @@
 (ns kotoba.wasm.abi-runtime-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [kotoba.wasm.abi :as abi]
             [kotoba.wasm.dom :as dom]
             [kotoba.wasm.host :as host]
