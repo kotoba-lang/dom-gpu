@@ -1,5 +1,5 @@
 (ns kotoba.wasm.golden-test
-  (:require [clojure.edn :as edn]
+  (:require [kotoba.lang.edn :as edn]
             [clojure.java.io :as io]
             [kotoba.test :refer [deftest is]]
             [kotoba.wasm.abi :as abi]
