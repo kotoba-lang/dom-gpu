@@ -11,7 +11,7 @@
    args, hsl()'s circular hue wrapping), the documented
    fallback for unparseable input, and the alpha-multiplication contract
    `->rgba` must preserve."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [kotoba.wasm.host.color :as color]))
 
 (defn- close?
