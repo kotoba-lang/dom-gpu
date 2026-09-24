@@ -22,8 +22,8 @@
    rather than only checking that nothing throws: an op that falls
    through `apply-op`'s default looks exactly like an op that correctly
    has no retained effect."
-  (:require [clojure.java.io :as io]
-            [clojure.set :as set]
+  (:require [kotoba.io :as io]
+            [kotoba.lang.coll :as set]
             [kotoba.lang.text :as str]
             [kotoba.test :refer [deftest is testing]]
             [kotoba.wasm.abi :as abi]
@@ -81,10 +81,10 @@
   "The `:dom/...` case keys `op->record` actually dispatches on."
   []
   (let [f (io/file abi-source-path)]
-    (is (.exists f)
+    (is (io/exists? f)
         (str "cannot read " abi-source-path " from " (System/getProperty "user.dir")
              " -- this test cannot answer without the source, and must not pass by default"))
-    (when (.exists f)
+    (when (io/exists? f)
       (->> (re-seq #":dom/([a-z][a-z0-9-]*)" (slurp f))
            (map (comp keyword (partial str "dom/") second))
            set))))
