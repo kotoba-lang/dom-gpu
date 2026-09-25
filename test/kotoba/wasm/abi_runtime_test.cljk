@@ -84,9 +84,9 @@
                 {:op :set-attr :id 1 :namespace "style" :name "width" :value "12"}]}
          (abi/encode-batch [[:dom/create-element 1 :div]
                             [:dom/set-attr 1 :style/width 12]])))
-  (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) #"Unsupported"
+  (is (thrown-with-msg? js/Error #"Unsupported"
                         (abi/validate-batch {:abi/version 999 :ops []})))
-  (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) #"Invalid create-element"
+  (is (thrown-with-msg? js/Error #"Invalid create-element"
                         (abi/validate-batch {:abi/version 1
                                              :ops [{:op :create-element :id "bad" :tag "div"}]})))
   (doseq [[message op] [["Invalid create-element" [:dom/create-element 1 nil]]
@@ -107,9 +107,9 @@
                         ["Invalid focus" [:dom/focus nil]]
                         ["Invalid blur" [:dom/blur nil]]
                         ["Invalid remove-attr" [:dom/remove-attr 1 nil]]]]
-    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) (re-pattern message)
+    (is (thrown-with-msg? js/Error (re-pattern message)
                           (abi/validate-batch (abi/encode-batch [op])))))
-  (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) #"Unknown"
+  (is (thrown-with-msg? js/Error #"Unknown"
                         (abi/encode-batch [[:dom/nope 1]]))))
 
 (deftest abi-batch-validation-accepts-real-string-handler-ids
@@ -132,9 +132,9 @@
          (:handler (first (:ops (abi/validate-batch
                                   (abi/encode-batch [[:dom/dispatch-event "handler-1" {:type :click}]])))))))
   (testing "nil is still rejected -- only nil, not every non-numeric value"
-    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) #"Invalid add-event-listener"
+    (is (thrown-with-msg? js/Error #"Invalid add-event-listener"
                           (abi/validate-batch (abi/encode-batch [[:dom/add-event-listener 1 :click nil]]))))
-    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) #"Invalid dispatch-event"
+    (is (thrown-with-msg? js/Error #"Invalid dispatch-event"
                           (abi/validate-batch (abi/encode-batch [[:dom/dispatch-event nil {:type :click}]]))))))
 
 (deftest abi-encodes-and-validates-remove-event-listener
@@ -178,7 +178,7 @@
                         ["Invalid create-fragment" [:dom/create-fragment nil]]
                         ["Invalid focus" [:dom/focus nil]]
                         ["Invalid blur" [:dom/blur nil]]]]
-    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) (re-pattern message)
+    (is (thrown-with-msg? js/Error (re-pattern message)
                           (abi/validate-batch (abi/encode-batch [op]))))))
 
 (deftest abi-encodes-and-validates-remove-attr
@@ -383,7 +383,7 @@
         function-host {:apply-op! (fn [_ op] (swap! state update :ops conj op))
                        :present! (fn [_] (swap! state update :present-count inc))
                        :poll-event! (fn [_] nil)}]
-    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) #"Invalid add-event-listener"
+    (is (thrown-with-msg? js/Error #"Invalid add-event-listener"
                           (host/commit! function-host [[:dom/create-element 1 :button]
                                                        [:dom/add-event-listener 1 nil 9]])))
     (is (= [] (:ops @state)))
