@@ -22,7 +22,7 @@
    rather than only checking that nothing throws: an op that falls
    through `apply-op`'s default looks exactly like an op that correctly
    has no retained effect."
-  (:require [kotoba.io :as io]
+  (:require [kotoba.lang.error :as kerror] [kotoba.io :as io]
             [kotoba.lang.coll :as set]
             [kotoba.lang.text :as str]
             [kotoba.test :refer [deftest is testing]]
@@ -133,18 +133,18 @@
 
 (deftest the-gate-discriminates
   (testing "an unknown op kind is refused by encode, not silently dropped"
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unknown kotoba DOM op"
+    (is (thrown-with-msg? kerror/ExceptionInfo #"Unknown kotoba DOM op"
                           (abi/encode-batch [[:dom/no-such-op 1]]))))
   (testing "a malformed but KNOWN op is refused by validate, per kind"
     (doseq [[kind bad] {:dom/append-content [:dom/append-content nil 2]
                         :dom/create-comment [:dom/create-comment nil "x"]
                         :dom/append-child   [:dom/append-child nil 2]
                         :dom/set-attr       [:dom/set-attr nil :style/width 1]}]
-      (is (thrown? clojure.lang.ExceptionInfo
+      (is (thrown? kerror/ExceptionInfo
                    (abi/validate-batch (abi/encode-batch [bad])))
           (str kind " with a nil id was admitted"))))
   (testing "an unsupported ABI version is refused"
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unsupported kotoba DOM ABI version"
+    (is (thrown-with-msg? kerror/ExceptionInfo #"Unsupported kotoba DOM ABI version"
                           (abi/validate-batch {:abi/version 999 :ops []})))))
 
 (deftest wit-coverage-gap-is-recorded-not-hidden

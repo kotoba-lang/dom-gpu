@@ -22,10 +22,10 @@
   (is (true? @(rf/subscribe [:ready?])))
   (rf/clear!)
   (testing "event handlers are reset"
-    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) #"No event-db handler"
+    (is (thrown-with-msg? js/Error #"No event-db handler"
                           (rf/dispatch-sync [:init]))))
   (testing "subscription handlers are reset"
-    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) #"No subscription"
+    (is (thrown-with-msg? js/Error #"No subscription"
                           @(rf/subscribe [:ready?])))))
 
 (deftest reagent-compat-atom-and-as-element-are-portable-shims
