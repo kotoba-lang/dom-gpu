@@ -14,3 +14,9 @@ The native golden covers document construction, root/children/attribute/style
 changes, tree construction and operation consumption. The former full hosted
 DOM/HTML/GPU test and lint matrix is no longer covered by CI. CSSOM, GPU output,
 Browser surface and the kernel desktop remain separate qualification gates.
+
+The native-shared workflow now executes the current owner fixture on both native
+ARM and x86 Linux using an immutable Amu commit and pinned shared dependencies.
+It hashes the actual compiler image, locks all discovered source bytes and
+preserves Kotoba verdicts/refusals as artifacts. Its bounded result does not
+restore the uncovered legacy full host suite or qualify the P4 desktop.
